@@ -32,6 +32,7 @@ I've recorded myself walking through the paper and implementing it in a two hour
 - https://www.youtube.com/watch?v=iDulhoQ2pro
 - https://www.youtube.com/watch?v=cbYxHkgkSVs
 
+```
 @misc{vaswani2023attention,
     title={Attention Is All You Need}, 
     author={Ashish Vaswani and Noam Shazeer and Niki Parmar and Jakob Uszkoreit and Llion Jones and Aidan N. Gomez and Lukasz Kaiser and Illia Polosukhin},
@@ -40,3 +41,4 @@ I've recorded myself walking through the paper and implementing it in a two hour
     archivePrefix={arXiv},
     primaryClass={cs.CL}
 }
+```
