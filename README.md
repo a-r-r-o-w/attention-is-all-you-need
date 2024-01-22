@@ -25,6 +25,10 @@ python3 main.py visualize_positional_encoding -e 64 -m 64 --save -o assets/pe-64
 
 This should give you the visual representation of the sin and cosine positional encoding based on Section 3.5 of the paper. There are many good resources explaining the need for positional encodings, either learned embeddings or the encoding used here, and I do not think I could do a better job at explaining it. So, here's a few good reads:
 
+- https://kazemnejad.com/blog/transformer_architecture_positional_encoding/
+- https://towardsdatascience.com/master-positional-encoding-part-i-63c05d90a0c3
+- https://www.youtube.com/watch?v=1biZfFLPRSY
+
 <table>
 <tr>
   <td><strong> Positional Encoding </strong></td>
@@ -35,7 +39,7 @@ This should give you the visual representation of the sin and cosine positional 
     $$\text{{PE}}(pos, 2i) = \sin\left(\frac{pos}{10000^{2i/d}}\right)$$
     $$\text{{PE}}(pos, 2i+1) = \cos\left(\frac{pos}{10000^{2i/d}}\right)$$
   </td>
-  <td><img src="./assets/pe-64-64.png"></td>
+  <td><img src="https://github.com/a-r-r-o-w/attention-is-all-you-need/blob/main/assets/pe-64-64.png"></td>
 </tr>
 </table>
 
