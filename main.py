@@ -1,9 +1,12 @@
 from typing import Optional
 
 import fire
+import matplotlib.pyplot as plt
+import numpy as np
 import torch.optim as optim
+from PIL import Image
 
-from models import Transformer
+from models import Transformer, PositionalEncoding
 from utils import get_summary, initialize_weights
 
 
@@ -17,7 +20,7 @@ class CLI:
     training or inference.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def train(
@@ -45,7 +48,7 @@ class CLI:
         weight_initialization_method: str = "kaiming_uniform",
         learning_rate: float = 1e-5,
         weight_decay: float = 1e-4,
-    ):
+    ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
 
         Args:
@@ -89,6 +92,45 @@ class CLI:
             betas=(0.9, 0.98), 
             eps=1e-9,
         )
+    
+    def visualize_positional_encoding(
+        self,
+        embedding_size: int = 64,
+        max_length: int = 64,
+        *,
+        save: bool = False,
+        output_path: str = "pe.png",
+    ) -> None:
+        r"""Visualize positional encoding used in the paper.
+
+        Args:
+            embedding_size:
+                The dimensionality of vector space embeddings (`d_model` in the paper)
+            max_length:
+                Maximum sequence length of tokens
+            save:
+                Whether or not to save the plot
+            output_path:
+                Path to file where plot is to be saved
+        """
+        
+        position_encoder = PositionalEncoding(embedding_size, max_length)
+        pe: np.ndarray = position_encoder.pe.detach().numpy()
+        
+        figsize = (
+            min(embedding_size // 8, 20),
+            min(max_length // 8, 20),
+        )
+        plt.figure(figsize=figsize)
+        plt.imshow(pe, cmap="magma")
+        plt.xlabel("Embedding size (d_model)", fontsize=20)
+        plt.ylabel("Sequence length", fontsize=20)
+        plt.title("Positional Encoding", fontsize=20)
+
+        if save:
+            plt.savefig(output_path)
+        
+        plt.show()
 
 
 if __name__ == "__main__":

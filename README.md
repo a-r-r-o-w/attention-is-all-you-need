@@ -9,6 +9,36 @@ I've been trying to practice implementing papers related to new model architectu
 
 I've recorded myself walking through the paper and implementing it in a two hour programming stream on [YouTube](https://youtu.be/Fu1oZdYYQYE). This is an attempt to make myself more comfortable with explaining ideas when programming. Unfortunately, I own a terrible microphone, only realizing that after completing the implementation, and so the audio has been replaced with lofi.
 
+### Usage
+
+#### Training
+
+TODO
+
+#### Visualization of Position Encoding
+
+To run visualization for positional encoding:
+
+```py
+python3 main.py visualize_positional_encoding -e 64 -m 64 --save -o assets/pe-64-64.png
+```
+
+This should give you the visual representation of the sin and cosine positional encoding based on Section 3.5 of the paper. There are many good resources explaining the need for positional encodings, either learned embeddings or the encoding used here, and I do not think I could do a better job at explaining it. So, here's a few good reads:
+
+<table>
+<tr>
+  <td><strong> Positional Encoding </strong></td>
+  <td><strong> Visualization </strong></td>
+</tr>
+<tr>
+  <td>
+    $$\text{{PE}}(pos, 2i) = \sin\left(\frac{pos}{10000^{2i/d}}\right)$$
+    $$\text{{PE}}(pos, 2i+1) = \cos\left(\frac{pos}{10000^{2i/d}}\right)$$
+  </td>
+  <td><img src="./assets/pe-64-64.png"></td>
+</tr>
+</table>
+
 ### TODO
 
 - [ ] Verify model architecture to be faithful with the original paper
@@ -19,7 +49,8 @@ I've recorded myself walking through the paper and implementing it in a two hour
 - [ ] Play around with different hyperparameters and try to really understand things
 - [ ] Implement Attention maps for visualization
 - [ ] Improve documentation
-- [ ] Visualize positional encoding. Compare against learned embeddings for position as suggested in paper
+- [x] Visualize positional encoding
+- [ ] Compare positional encoding against learned embeddings for position as suggested in paper
 - [ ] Allow different number of encoder-decoder blocks. Experiment with decoder-only model as done in a few architectures
 - [ ] Improve README and add illustrations where required
 
