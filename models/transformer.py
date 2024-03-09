@@ -18,10 +18,10 @@ class Encoder(nn.Module):
     def __init__(
         self,
         num_layers: int,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -34,25 +34,27 @@ class Encoder(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.blocks = nn.ModuleList([
-            EncoderBlock(
-                embedding_size=embedding_size,
-                query_key_size=query_key_size,
-                value_size=value_size,
-                num_heads=num_heads,
-                ffn_hidden_dim=ffn_hidden_dim,
-                ffn_activation=ffn_activation,
-                use_query_bias=use_query_bias,
-                use_key_bias=use_key_bias,
-                use_value_bias=use_value_bias,
-                use_ffn_bias_1=use_ffn_bias_1,
-                use_ffn_bias_2=use_ffn_bias_2,
-                temperature=temperature,
-                dropout_rate=dropout_rate,
-            )
-            for _ in range(num_layers)
-        ])
-    
+        self.blocks = nn.ModuleList(
+            [
+                EncoderBlock(
+                    embedding_size=embedding_size,
+                    query_key_size=query_key_size,
+                    value_size=value_size,
+                    num_heads=num_heads,
+                    ffn_hidden_dim=ffn_hidden_dim,
+                    ffn_activation=ffn_activation,
+                    use_query_bias=use_query_bias,
+                    use_key_bias=use_key_bias,
+                    use_value_bias=use_value_bias,
+                    use_ffn_bias_1=use_ffn_bias_1,
+                    use_ffn_bias_2=use_ffn_bias_2,
+                    temperature=temperature,
+                    dropout_rate=dropout_rate,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
     def forward(self, x: T, mask: Optional[T] = None) -> T:
         # 1. Process encoder blocks
         for block in self.blocks:
@@ -70,10 +72,10 @@ class Decoder(nn.Module):
     def __init__(
         self,
         num_layers: int,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -85,31 +87,35 @@ class Decoder(nn.Module):
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
-        
-        self.blocks = nn.ModuleList([
-            DecoderBlock(
-                embedding_size=embedding_size,
-                query_key_size=query_key_size,
-                value_size=value_size,
-                num_heads=num_heads,
-                ffn_hidden_dim=ffn_hidden_dim,
-                ffn_activation=ffn_activation,
-                use_query_bias=use_query_bias,
-                use_key_bias=use_key_bias,
-                use_value_bias=use_value_bias,
-                use_ffn_bias_1=use_ffn_bias_1,
-                use_ffn_bias_2=use_ffn_bias_2,
-                temperature=temperature,
-                dropout_rate=dropout_rate,
-            )
-            for _ in range(num_layers)
-        ])
-    
-    def forward(self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None) -> T:
+
+        self.blocks = nn.ModuleList(
+            [
+                DecoderBlock(
+                    embedding_size=embedding_size,
+                    query_key_size=query_key_size,
+                    value_size=value_size,
+                    num_heads=num_heads,
+                    ffn_hidden_dim=ffn_hidden_dim,
+                    ffn_activation=ffn_activation,
+                    use_query_bias=use_query_bias,
+                    use_key_bias=use_key_bias,
+                    use_value_bias=use_value_bias,
+                    use_ffn_bias_1=use_ffn_bias_1,
+                    use_ffn_bias_2=use_ffn_bias_2,
+                    temperature=temperature,
+                    dropout_rate=dropout_rate,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+    def forward(
+        self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
+    ) -> T:
         # 1. Process decoder blocks
         for block in self.blocks:
             x = block(x, enc_x, mask, dec_enc_mask)
-        
+
         return x
 
 
@@ -132,10 +138,10 @@ class Transformer(nn.Module):
         vocab_tgt_size: int,
         pad_src_idx: int,
         pad_tgt_idx: int,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -152,18 +158,18 @@ class Transformer(nn.Module):
 
         self.pad_src_idx = pad_src_idx
         self.pad_tgt_idx = pad_tgt_idx
-        
+
         self.pe = PositionalEncoding(
             embedding_size=embedding_size,
             max_length=max_length,
         )
-        
+
         self.src_emb = nn.Embedding(vocab_src_size, embedding_size)
         self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_size)
 
         self.src_dropout = nn.Dropout(dropout_rate)
         self.tgt_dropout = nn.Dropout(dropout_rate)
-        
+
         self.encoder = Encoder(
             num_layers=num_layers,
             embedding_size=embedding_size,
@@ -180,7 +186,7 @@ class Transformer(nn.Module):
             temperature=temperature,
             dropout_rate=dropout_rate,
         )
-        
+
         self.decoder = Decoder(
             num_layers=num_layers,
             embedding_size=embedding_size,
@@ -197,17 +203,19 @@ class Transformer(nn.Module):
             temperature=temperature,
             dropout_rate=dropout_rate,
         )
-        
-        self.linear = nn.Linear(embedding_size, vocab_tgt_size, bias=use_final_linear_bias)
+
+        self.linear = nn.Linear(
+            embedding_size, vocab_tgt_size, bias=use_final_linear_bias
+        )
         self.softmax = nn.Softmax(dim=2)
-    
+
     def _get_mask(self, x: T, pad_idx: int) -> T:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
-        return (x != pad_idx)
+        return (x != pad_idx).unsqueeze(1).unsqueeze(2)
 
     def _get_shifted_mask(self, x: T) -> T:
         r"""Helper utility to get mask for decoder. The decoder should not pay attention to future tokens.
-        
+
         This returns a tensor that looks like:
             [
                 [0, 0, 0, ...],
@@ -216,16 +224,18 @@ class Transformer(nn.Module):
                 ...
             ]
         """
-        batch_size = x.size(0)
+        # batch_size = x.size(0)
         seq_length = x.size(1)
-        ones = torch.ones((batch_size, seq_length, seq_length), device=x.device)
-        triu = torch.triu(ones)
-        return (1 - triu).bool()
-    
+        ones = torch.ones((1, seq_length, seq_length), device=x.device)
+        tril = torch.tril(ones).bool()
+        return tril
+
     def forward(self, src_x: T, tgt_x: T) -> T:
         # 1. Prepare masks for encoder and decoder
         src_mask = self._get_mask(src_x, self.pad_src_idx)
-        tgt_mask = self._get_mask(tgt_x, self.pad_tgt_idx) & self._get_shifted_mask(tgt_x)
+        tgt_mask = self._get_mask(tgt_x, self.pad_tgt_idx) & self._get_shifted_mask(
+            tgt_x
+        )
 
         # 2. Convert tokens to embeddings
         src_x = self.src_emb(src_x)
@@ -249,5 +259,5 @@ class Transformer(nn.Module):
         # 6. Linear projection to get probabilities for output tokens using softmax
         x = self.linear(x)
         x = self.softmax(x)
-        
+
         return x

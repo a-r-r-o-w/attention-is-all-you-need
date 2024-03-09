@@ -17,10 +17,10 @@ class EncoderBlock(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -47,7 +47,7 @@ class EncoderBlock(nn.Module):
         )
         self.dropout1 = nn.Dropout(dropout_rate)
         self.norm1 = nn.LayerNorm(embedding_size)
-        
+
         self.pffn = PositionwiseFeedForward(
             in_out_dim=embedding_size,
             hidden_dim=ffn_hidden_dim,
@@ -57,7 +57,7 @@ class EncoderBlock(nn.Module):
         )
         self.dropout2 = nn.Dropout(dropout_rate)
         self.norm2 = nn.LayerNorm(embedding_size)
-    
+
     def forward(self, x: T, mask: Optional[T] = None) -> T:
         # 1. MultiHead Attention
         residual = x.clone()
@@ -88,10 +88,10 @@ class DecoderBlock(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -118,7 +118,7 @@ class DecoderBlock(nn.Module):
         )
         self.dropout1 = nn.Dropout(dropout_rate)
         self.norm1 = nn.LayerNorm(embedding_size)
-        
+
         self.mha2 = MultiHeadAttention(
             embedding_size=embedding_size,
             query_key_size=query_key_size,
@@ -132,7 +132,7 @@ class DecoderBlock(nn.Module):
         )
         self.dropout2 = nn.Dropout(dropout_rate)
         self.norm2 = nn.LayerNorm(embedding_size)
-        
+
         self.pffn = PositionwiseFeedForward(
             in_out_dim=embedding_size,
             hidden_dim=ffn_hidden_dim,
@@ -142,8 +142,10 @@ class DecoderBlock(nn.Module):
         )
         self.dropout3 = nn.Dropout(dropout_rate)
         self.norm3 = nn.LayerNorm(embedding_size)
-    
-    def forward(self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None) -> T:
+
+    def forward(
+        self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
+    ) -> T:
         # 1. Masked MultiHead Attention
         residual = x.clone()
         x = self.mha1(x, x, x, mask)

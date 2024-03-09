@@ -16,10 +16,10 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int, # `d_model` in paper
-        query_key_size: int, # `d_k` in paper
-        value_size: int,     # `d_v` in paper
-        num_heads: int,      # `h` in paper
+        embedding_size: int,  # `d_model` in paper
+        query_key_size: int,  # `d_k` in paper
+        value_size: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
         use_query_bias: bool = False,
         use_key_bias: bool = False,
         use_value_bias: bool = False,
@@ -36,33 +36,45 @@ class MultiHeadAttention(nn.Module):
         self.value_head_dim = value_size // num_heads
 
         if self.query_key_head_dim * num_heads != query_key_size:
-            raise ValueError(f"`{self.query_key_head_dim=}` must be divisible by `{num_heads=}`")
+            raise ValueError(
+                f"`{self.query_key_head_dim=}` must be divisible by `{num_heads=}`"
+            )
         if self.value_head_dim * num_heads != value_size:
-            raise ValueError(f"`{self.value_head_dim=}` must be divisible by `{num_heads=}`")
+            raise ValueError(
+                f"`{self.value_head_dim=}` must be divisible by `{num_heads=}`"
+            )
 
-        self.linear_query = nn.Linear(self.embedding_size, self.query_key_size, bias=use_query_bias)
-        self.linear_key = nn.Linear(self.embedding_size, self.query_key_size, bias=use_key_bias)
-        self.linear_value = nn.Linear(self.embedding_size, self.value_size, bias=use_value_bias)
+        self.linear_query = nn.Linear(
+            self.embedding_size, self.query_key_size, bias=use_query_bias
+        )
+        self.linear_key = nn.Linear(
+            self.embedding_size, self.query_key_size, bias=use_key_bias
+        )
+        self.linear_value = nn.Linear(
+            self.embedding_size, self.value_size, bias=use_value_bias
+        )
 
         self.scaled_dot_product_attn = ScaledDotProductAttention(
             query_key_size=query_key_size,
             temperature=temperature,
         )
 
-        self.linear_final = nn.Linear(self.value_size, self.embedding_size, bias=use_final_linear_mha_bias)
-    
+        self.linear_final = nn.Linear(
+            self.value_size, self.embedding_size, bias=use_final_linear_mha_bias
+        )
+
     def _split(self, x: T, split_size: int) -> T:
         # result shape: [batch_size, seq_length, num_heads, split_size]
         batch_size = x.size(0)
         x = x.view(batch_size, -1, self.num_heads, split_size)
         return x
-    
+
     def _concat(self, x: T, concat_size: int) -> T:
         # result shape: [batch_size, seq_length, num_heads * concat_size]
         batch_size = x.size(0)
         x = x.view(batch_size, -1, self.num_heads * concat_size)
         return x
-    
+
     def forward(self, query: T, key: T, value: T, mask: Optional[T] = None) -> T:
         # 1. Linear
         query = self.linear_query(query)
@@ -80,7 +92,7 @@ class MultiHeadAttention(nn.Module):
         # 3. Concat
         x = x.transpose(1, 2).contiguous()
         x = self._concat(x, self.value_head_dim)
-        
+
         # 4. Linear
         x = self.linear_final(x)
 

@@ -11,7 +11,7 @@ class PositionwiseFeedForward(nn.Module):
 
     Args:
     """
-    
+
     def __init__(
         self,
         in_out_dim: int,
@@ -24,7 +24,7 @@ class PositionwiseFeedForward(nn.Module):
         self.linear_1 = nn.Linear(in_out_dim, hidden_dim, bias=use_bias_1)
         self.linear_2 = nn.Linear(hidden_dim, in_out_dim, bias=use_bias_2)
         self.activation = get_activation(activation)
-    
+
     def forward(self, x: T) -> T:
         x = self.linear_1(x)
         x = self.activation(x)
