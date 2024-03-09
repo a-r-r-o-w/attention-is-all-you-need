@@ -48,7 +48,9 @@ This should give you the visual representation of the sin and cosine positional 
 - [ ] Verify model architecture to be faithful with the original paper
 - [ ] Verify if all hyperparameters are set to correct defaults
 - [ ] Verify if layernorm and dropouts are correct
-- [ ] Implement the training loop
+- [x] Implement the training loop
+- [x] Implement the LR scheduler
+- [ ] Implement beam search decoding
 - [ ] Implement BLEU score metric
 - [ ] Play around with different hyperparameters and try to really understand things
 - [ ] Implement Attention maps for visualization
