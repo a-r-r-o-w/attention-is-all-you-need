@@ -133,7 +133,8 @@ class Transformer(nn.Module):
 
     def __init__(
         self,
-        num_layers: int,
+        num_encoder_layers: int,
+        num_decoder_layers: int,
         vocab_src_size: int,
         vocab_tgt_size: int,
         pad_src_idx: int,
@@ -166,12 +167,13 @@ class Transformer(nn.Module):
 
         self.src_emb = nn.Embedding(vocab_src_size, embedding_size)
         self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_size)
+        self.scale = torch.sqrt(torch.tensor(embedding_size, dtype=torch.float32))
 
         self.src_dropout = nn.Dropout(dropout_rate)
         self.tgt_dropout = nn.Dropout(dropout_rate)
 
         self.encoder = Encoder(
-            num_layers=num_layers,
+            num_layers=num_encoder_layers,
             embedding_size=embedding_size,
             query_key_size=query_key_size,
             value_size=value_size,
@@ -188,7 +190,7 @@ class Transformer(nn.Module):
         )
 
         self.decoder = Decoder(
-            num_layers=num_layers,
+            num_layers=num_decoder_layers,
             embedding_size=embedding_size,
             query_key_size=query_key_size,
             value_size=value_size,
@@ -218,9 +220,9 @@ class Transformer(nn.Module):
 
         This returns a tensor that looks like:
             [
-                [0, 0, 0, ...],
                 [1, 0, 0, ...],
                 [1, 1, 0, ...],
+                [1, 1, 1, ...],
                 ...
             ]
         """
@@ -244,8 +246,9 @@ class Transformer(nn.Module):
         # 3. Apply positional encoding
         src_pe = self.pe(src_x)
         tgt_pe = self.pe(tgt_x)
-        src_x = src_x + src_pe
-        tgt_x = tgt_x + tgt_pe
+        self.scale = self.scale.to(src_x.device, dtype=src_x.dtype)
+        src_x = src_x * self.scale + src_pe
+        tgt_x = tgt_x * self.scale + tgt_pe
 
         # 4. Regularization after embed as described in section 5.4 of the paper
         src_x = self.src_dropout(src_x)

@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 import fire
@@ -7,9 +8,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from PIL import Image
 
-from data import Multi30kDatasetHandler
+from data import Multi30kDatasetHandler, Vocabulary
 from models import Transformer, PositionalEncoding, LRScheduler
 from utils import get_summary, initialize_weights, collate_fn
 
@@ -17,6 +19,37 @@ from utils import get_summary, initialize_weights, collate_fn
 def _print_with_line(content: str, line_length: int = 80):
     print(content)
     print("-" * line_length)
+
+
+def seq_to_seq_translate(
+    transformer: nn.Module,
+    en_tensors: torch.Tensor,
+    de_tensors: torch.Tensor,
+    vocab: Vocabulary,
+    sos_token: str,
+    max_length: int,
+):
+    en_tensors = en_tensors.to(device="cuda")
+    de_tensors = de_tensors.to(device="cuda")
+    current_batch_size = en_tensors.shape[0]
+    outputs = torch.zeros(current_batch_size, max_length).type_as(en_tensors)
+    outputs[:, 0] = torch.LongTensor(
+        [vocab.stoi[sos_token]] * current_batch_size
+    )  # start with <sos> token
+
+    for t in range(1, max_length):
+        output = transformer(en_tensors, outputs[:, :t])
+        output = output.argmax(dim=-1)
+        outputs[:, t] = output[:, -1]
+
+    sep = " "
+    targets = []
+    generated = []
+    for i in range(current_batch_size):
+        targets.append(sep.join([vocab.itos[idx.item()] for idx in de_tensors[i, :]]))
+        generated.append(sep.join([vocab.itos[idx.item()] for idx in outputs[i, :]]))
+
+    return targets, generated
 
 
 class CLI:
@@ -29,7 +62,8 @@ class CLI:
 
     def train(
         self,
-        num_layers: int = 6,
+        num_encoder_layers: int = 6,
+        num_decoder_layers: int = 6,
         vocab_src_size: int = 25000,
         vocab_tgt_size: int = 25000,
         pad_src_idx: int = 24999,
@@ -55,8 +89,15 @@ class CLI:
         batch_size: int = 32,
         dataset_name: str = "multi30k",
         tokenizer_type: str = "spacy",
+        tokenizer_vocab_size: int = 3000,
+        tokenizer_min_frequency: int = 2,
         epochs: int = 10,
         seed: int = 42,
+        validation_epochs: int = 1,
+        checkpoint_path: str = "checkpoints",
+        checkpoint_name: str = "transformer",
+        checkpoint_steps: int = 500,
+        gradient_accumulation_steps: int = 1,
     ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
 
@@ -67,6 +108,11 @@ class CLI:
 
         torch.manual_seed(seed)
         np.random.seed(seed)
+
+        checkpoint_path = checkpoint_path
+
+        if not os.path.exists(checkpoint_path):
+            os.makedirs(checkpoint_path, exist_ok=True)
 
         match dataset_name:
             case "multi30k":
@@ -83,34 +129,14 @@ class CLI:
                     pad_token="<pad>",
                     max_length=max_length,
                     tokenizer_type=tokenizer_type,
+                    tokenizer_kwargs=None
+                    if tokenizer_type != "bpe"
+                    else {
+                        "vocab_size": tokenizer_vocab_size,
+                        "min_frequency": tokenizer_min_frequency,
+                    },
+                    ignorecase=True,
                 )
-                # train_dataset = Multi30kDataset(
-                #     path="dataset/multi30k",
-                #     filename="test.jsonl",
-                #     sos_token="<sos>",
-                #     eos_token="<eos>",
-                #     unk_token="<unk>",
-                #     pad_token="<pad>",
-                #     max_length=max_length,
-                # )
-                # test_dataset = Multi30kDataset(
-                #     path="dataset/multi30k",
-                #     filename="test.jsonl",
-                #     sos_token="<sos>",
-                #     eos_token="<eos>",
-                #     unk_token="<unk>",
-                #     pad_token="<pad>",
-                #     max_length=max_length,
-                # )
-                # val_dataset = Multi30kDataset(
-                #     path="dataset/multi30k",
-                #     filename="test.jsonl",
-                #     sos_token="<sos>",
-                #     eos_token="<eos>",
-                #     unk_token="<unk>",
-                #     pad_token="<pad>",
-                #     max_length=max_length,
-                # )
             case _:
                 raise ValueError(f"Dataset {dataset_name} not supported")
 
@@ -157,7 +183,8 @@ class CLI:
             pad_tgt_idx = train_dataset.de_vocab.stoi[train_dataset.pad_token]
 
         transformer = Transformer(
-            num_layers=num_layers,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
             vocab_src_size=vocab_src_size,
             vocab_tgt_size=vocab_tgt_size,
             pad_src_idx=pad_src_idx,
@@ -193,15 +220,17 @@ class CLI:
             betas=(0.9, 0.98),
             eps=1e-9,
         )
-        lr_scheduler = LRScheduler(
-            optimizer, embedding_size=embedding_size, warmup_steps=1000
-        )
+        # lr_scheduler = LRScheduler(
+        #     optimizer, embedding_size=embedding_size, warmup_steps=4000
+        # )
 
         criterion = nn.CrossEntropyLoss(ignore_index=pad_tgt_idx)
 
         train_losses = []
         val_losses = []
         learning_rates = []
+        step = 0
+        total_steps = len(train_dataloader) * epochs
 
         plt.ion()
         fig, (ax1, ax2) = plt.subplots(2, 1)
@@ -216,122 +245,142 @@ class CLI:
         ax2.set_title("Learning Rate")
         (line3,) = ax2.plot([], [], "b-")  # line for learning rate
 
-        for epoch in range(1, epochs + 1):
-            total_loss = 0.0
+        with tqdm(total=total_steps, desc="Training") as trainbar:
+            for epoch in range(1, epochs + 1):
+                total_loss = 0.0
 
-            transformer.train()
-            for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
-                en_tensors = en_tensors.to(device="cuda")
-                de_tensors = de_tensors.to(device="cuda")
-                optimizer.zero_grad()
-                output = transformer(en_tensors, de_tensors[:, :-1])  # drop eos token
-                output = output.permute(
-                    0, 2, 1
-                )  # [batch_size, de_vocab_size, max_length]
-                # loss = criterion(output, de_tensors[:, 1:])  # drop sos token
-                loss = criterion(
-                    output.contiguous().view(-1, de_vocab_size),
-                    de_tensors[:, 1:].contiguous().view(-1),
-                )  # drop sos token
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-                learning_rates.append(lr_scheduler.get_lr())
-                lr_scheduler.step()
+                transformer.train()
 
-            train_losses.append(total_loss / len(train_dataloader))
-            print(f"Epoch: {epoch}")
-            print(f"Loss: [{total_loss=}] {total_loss / len(train_dataloader)}")
-
-            # val set
-            total_loss = 0.0
-            transformer.eval()
-            with torch.no_grad():
-                for i, (en_tensors, de_tensors) in enumerate(val_dataloader):
+                for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
                     en_tensors = en_tensors.to(device="cuda")
                     de_tensors = de_tensors.to(device="cuda")
+                    optimizer.zero_grad()
                     output = transformer(
                         en_tensors, de_tensors[:, :-1]
                     )  # drop eos token
-                    output = output.permute(
-                        0, 2, 1
-                    )  # [batch_size, de_vocab_size, max_length]
+                    # output = output.permute(
+                    #     0, 2, 1
+                    # )  # [batch_size, de_vocab_size, max_length]
                     # loss = criterion(output, de_tensors[:, 1:])  # drop sos token
                     loss = criterion(
                         output.contiguous().view(-1, de_vocab_size),
                         de_tensors[:, 1:].contiguous().view(-1),
                     )  # drop sos token
+
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
+
+                    if (
+                        step + 1 == total_steps
+                        or step % gradient_accumulation_steps == 0
+                    ):
+                        for param in transformer.parameters():
+                            if param.grad is not None:
+                                param.grad /= gradient_accumulation_steps
+                        optimizer.step()
+                        optimizer.zero_grad()
+
                     total_loss += loss.item()
+                    # learning_rates.append(lr_scheduler.get_lr())
+                    # lr_scheduler.step()
 
-            val_losses.append(total_loss / len(val_dataloader))
-            print(f"Val Loss: [{total_loss=}] {total_loss / len(val_dataloader)}")
+                    step += 1
+                    trainbar.update()
 
-            transformer.eval()
-            with torch.no_grad():
-                for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                    en_tensors = en_tensors[:1].to(device="cuda")
-                    de_tensors = de_tensors[:1].to(device="cuda")
-                    current_batch_size = en_tensors.shape[0]
-                    outputs = torch.zeros(current_batch_size, max_length).type_as(
-                        en_tensors
-                    )
-                    outputs[:, 0] = torch.LongTensor(
-                        [test_dataset.de_vocab.stoi[test_dataset.sos_token]]
-                        * current_batch_size
-                    )  # start with <sos> token
-
-                    for t in range(1, max_length):
-                        output = transformer(en_tensors, outputs[:, :t])
-                        output = output.argmax(dim=-1)
-                        outputs[:, t] = output[:, t - 1]
-                        if (
-                            output[:, t - 1].item()
-                            == test_dataset.de_vocab.stoi[test_dataset.eos_token]
-                        ):
-                            break
-
-                    for i in range(1):
-                        print(
-                            "   target:",
-                            " ".join(
-                                [
-                                    test_dataset.de_vocab.itos[idx.item()]
-                                    for idx in de_tensors[i, :]
-                                ]
+                    if step % checkpoint_steps == 0:
+                        torch.save(
+                            transformer.state_dict(),
+                            os.path.join(
+                                checkpoint_path, f"{checkpoint_name}_{step}.pth"
                             ),
                         )
-                        print(
-                            "generated:",
-                            " ".join(
-                                [
-                                    test_dataset.de_vocab.itos[idx.item()]
-                                    for idx in outputs[i, :]
-                                ]
-                            ),
-                        )
-                    break
+
+                train_losses.append(total_loss / len(train_dataloader))
+                print()
+                print(f"Epoch: {epoch}")
+                print(
+                    f"Train Loss: [{total_loss=:.3f}] {total_loss / len(train_dataloader):.3f}"
+                )
+                print(f"Perplexity: {np.exp(total_loss / len(train_dataloader)):.3f}")
                 print()
 
-            line1.set_xdata(range(1, len(train_losses) + 1))
-            line1.set_ydata(train_losses)
-            line2.set_xdata(range(1, len(val_losses) + 1))
-            line2.set_ydata(val_losses)
-            ax1.relim()
-            ax1.autoscale_view()
+                # val set
+                if (epoch - 1) % validation_epochs == 0:
+                    total_loss = 0.0
+                    transformer.eval()
+                    with torch.no_grad():
+                        with tqdm(
+                            total=len(val_dataloader), desc="Validation"
+                        ) as valbar:
+                            for i, (en_tensors, de_tensors) in enumerate(
+                                val_dataloader
+                            ):
+                                en_tensors = en_tensors.to(device="cuda")
+                                de_tensors = de_tensors.to(device="cuda")
+                                output = transformer(
+                                    en_tensors, de_tensors[:, :-1]
+                                )  # drop eos token
+                                # output = output.permute(
+                                #     0, 2, 1
+                                # )  # [batch_size, de_vocab_size, max_length]
+                                # loss = criterion(output, de_tensors[:, 1:])  # drop sos token
+                                loss = criterion(
+                                    output.contiguous().view(-1, de_vocab_size),
+                                    de_tensors[:, 1:].contiguous().view(-1),
+                                )  # drop sos token
+                                total_loss += loss.item()
+                                valbar.update()
 
-            line3.set_xdata(range(1, len(learning_rates) + 1))
-            line3.set_ydata(learning_rates)
-            ax2.relim()
-            ax2.autoscale_view()
+                    val_losses.append(total_loss / len(val_dataloader))
+                    print()
+                    print(
+                        f"Validation Loss: [{total_loss=:.3f}] {total_loss / len(val_dataloader):.3f}"
+                    )
+                    print(f"Perplexity: {np.exp(total_loss / len(val_dataloader)):.3f}")
+                    print()
 
-            # Redraw the figure
-            fig.canvas.draw()
-            fig.canvas.flush_events()
+                transformer.eval()
+                with torch.no_grad():
+                    for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
+                        en_tensors = en_tensors[:1]
+                        de_tensors = de_tensors[:1]
+                        targets, generated = seq_to_seq_translate(
+                            transformer,
+                            en_tensors,
+                            de_tensors,
+                            dataset.de_vocab,
+                            dataset.sos_token,
+                            max_length,
+                        )
+                        print("Running testset inference")
+                        print(f"   target: {targets[0]}")
+                        print(f"generated: {generated[0]}")
+                        print()
+                        break
+
+                line1.set_xdata(range(1, len(train_losses) + 1))
+                line1.set_ydata(train_losses)
+                line2.set_xdata(range(1, len(val_losses) + 1))
+                line2.set_ydata(val_losses)
+                ax1.relim()
+                ax1.autoscale_view()
+
+                line3.set_xdata(range(1, len(learning_rates) + 1))
+                line3.set_ydata(learning_rates)
+                ax2.relim()
+                ax2.autoscale_view()
+
+                # Redraw the figure
+                fig.canvas.draw()
+                fig.canvas.flush_events()
 
         plt.ioff()
         plt.show()
 
-        torch.save(transformer.state_dict(), "transformer.pth")
+        torch.save(
+            transformer.state_dict(),
+            os.path.join(checkpoint_path, f"{checkpoint_name}_final.pth"),
+        )
         np.save("train_losses.npy", np.array(train_losses))
         np.save("val_losses.npy", np.array(val_losses))
         np.save("learning_rates.npy", np.array(learning_rates))

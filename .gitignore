@@ -163,3 +163,7 @@ cython_debug/
 # datasets
 *.parquet
 *.jsonl
+
+# models
+checkpoints/
+*.npy
