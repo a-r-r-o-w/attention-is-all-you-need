@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Optional
 
 import fire
@@ -7,11 +8,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
+from tokenizers.pre_tokenizers import Whitespace
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from PIL import Image
 
-from data import Multi30kDatasetHandler, Vocabulary
 from models import Transformer, PositionalEncoding, LRScheduler
 from utils import get_summary, initialize_weights, collate_fn
 
@@ -21,33 +25,59 @@ def _print_with_line(content: str, line_length: int = 80):
     print("-" * line_length)
 
 
+def greedy_decode(
+    transformer: Transformer,
+    src: torch.Tensor,
+    max_length: int,
+    sos_token_idx: int,
+    eos_token_idx: int
+) -> torch.Tensor:
+    encoded = transformer.encode(src)
+    outputs = torch.ones(1, 1).fill_(sos_token_idx).type_as(src).to(src.device)
+    
+    for _ in range(max_length - 1):
+        output = transformer.decode(outputs, encoded)
+        output = output.argmax(dim=-1)
+        pred_token = output[0, -1].item()
+        outputs = torch.cat([outputs, torch.ones(1, 1).fill_(pred_token).type_as(src)], dim=-1)
+        if pred_token == eos_token_idx:
+            break
+    
+    # print(outputs)
+    return outputs
+
+
 def seq_to_seq_translate(
-    transformer: nn.Module,
+    transformer: Transformer,
     en_tensors: torch.Tensor,
     de_tensors: torch.Tensor,
-    vocab: Vocabulary,
+    tokenizer_en: Tokenizer,
+    tokenizer_de: Tokenizer,
     sos_token: str,
+    eos_token: str,
+    pad_token: str,
     max_length: int,
 ):
     en_tensors = en_tensors.to(device="cuda")
     de_tensors = de_tensors.to(device="cuda")
     current_batch_size = en_tensors.shape[0]
-    outputs = torch.zeros(current_batch_size, max_length).type_as(en_tensors)
-    outputs[:, 0] = torch.LongTensor(
-        [vocab.stoi[sos_token]] * current_batch_size
-    )  # start with <sos> token
-
-    for t in range(1, max_length):
-        output = transformer(en_tensors, outputs[:, :t])
-        output = output.argmax(dim=-1)
-        outputs[:, t] = output[:, -1]
-
-    sep = " "
-    targets = []
-    generated = []
+    sos_token_idx = tokenizer_de.token_to_id(sos_token)
+    eos_token_idx = tokenizer_de.token_to_id(eos_token)
+    pad_token_idx = tokenizer_de.token_to_id(pad_token)
+    outputs = []
+    
     for i in range(current_batch_size):
-        targets.append(sep.join([vocab.itos[idx.item()] for idx in de_tensors[i, :]]))
-        generated.append(sep.join([vocab.itos[idx.item()] for idx in outputs[i, :]]))
+        src = en_tensors[i].unsqueeze(0)
+        tgt = de_tensors[i].unsqueeze(0)
+        output = greedy_decode(transformer, src, max_length, sos_token_idx, eos_token_idx)[:max_length]
+        if output.size(1) < max_length:
+            output = torch.cat([output, torch.ones(1, max_length - output.size(1)).fill_(pad_token_idx).type_as(src)], dim=-1)
+        outputs.append(output)
+    
+    outputs = torch.cat(outputs, dim=0)
+
+    targets = tokenizer_de.decode_batch(de_tensors.cpu().numpy(), skip_special_tokens=False)
+    generated = tokenizer_de.decode_batch(outputs.cpu().numpy(), skip_special_tokens=False)
 
     return targets, generated
 
@@ -88,9 +118,6 @@ class CLI:
         weight_decay: float = 1e-4,
         batch_size: int = 32,
         dataset_name: str = "multi30k",
-        tokenizer_type: str = "spacy",
-        tokenizer_vocab_size: int = 3000,
-        tokenizer_min_frequency: int = 2,
         epochs: int = 10,
         seed: int = 42,
         validation_epochs: int = 1,
@@ -109,78 +136,97 @@ class CLI:
         torch.manual_seed(seed)
         np.random.seed(seed)
 
-        checkpoint_path = checkpoint_path
+        sos_token = "<sos>"
+        eos_token = "<eos>"
+        unk_token = "<unk>"
+        pad_token = "<pad>"
 
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path, exist_ok=True)
 
         match dataset_name:
             case "multi30k":
-                dataset = Multi30kDatasetHandler(
-                    path="dataset/multi30k",
-                    files={
-                        "train": "train.jsonl",
-                        "test": "test.jsonl",
-                        "val": "val.jsonl",
-                    },
-                    sos_token="<sos>",
-                    eos_token="<eos>",
-                    unk_token="<unk>",
-                    pad_token="<pad>",
-                    max_length=max_length,
-                    tokenizer_type=tokenizer_type,
-                    tokenizer_kwargs=None
-                    if tokenizer_type != "bpe"
-                    else {
-                        "vocab_size": tokenizer_vocab_size,
-                        "min_frequency": tokenizer_min_frequency,
-                    },
-                    ignorecase=True,
-                )
+                path = "dataset/multi30k"
+                files = {
+                    "train": "train.jsonl",
+                    "test": "test.jsonl",
+                    "val": "val.jsonl",
+                }
+                data = {}
+                for split, filename in files.items():
+                    if split not in ["train", "val", "test"]:
+                        raise ValueError(f"Split '{split}' is not supported")
+                    
+                    data[split] = []
+
+                    with open(os.path.join(path, filename), "r") as f:
+                        for line in f:
+                            item = json.loads(line)
+                            item["en"] = item["en"].lower()
+                            item["de"] = item["de"].lower()
+                            data[split].append(item)
+                    
+                    # data[split] = data[split][:10000]
+
+                sentences_en = [item["en"] for split in data.keys() for item in data[split]]
+                sentences_de = [item["de"] for split in data.keys() for item in data[split]]
+
+                tokenizer_en = Tokenizer(BPE(unk_token=unk_token))
+                tokenizer_de = Tokenizer(BPE(unk_token=unk_token))
+                tokenizer_en.pre_tokenizer = Whitespace()
+                tokenizer_de.pre_tokenizer = Whitespace()
+
+                trainer_en = BpeTrainer(special_tokens=[sos_token, eos_token, unk_token, pad_token], vocab_size=vocab_src_size, min_frequency=2)
+                trainer_de = BpeTrainer(special_tokens=[sos_token, eos_token, unk_token, pad_token], vocab_size=vocab_tgt_size, min_frequency=2)
+
+                tokenizer_en.train_from_iterator(sentences_en, trainer_en)
+                tokenizer_de.train_from_iterator(sentences_de, trainer_de)
             case _:
                 raise ValueError(f"Dataset {dataset_name} not supported")
+        
+        sos_token_idx = tokenizer_en.token_to_id(sos_token)
+        eos_token_idx = tokenizer_en.token_to_id(eos_token)
+        for split in data.keys():
+            data_tensors = []
+            for item in data[split]:
+                item["en"] = [sos_token_idx] + tokenizer_en.encode(item["en"]).ids + [eos_token_idx]
+                item["de"] = [sos_token_idx] + tokenizer_de.encode(item["de"]).ids + [eos_token_idx]
+                item["en"] = torch.tensor(item["en"][:max_length], dtype=torch.long)
+                item["de"] = torch.tensor(item["de"][:max_length], dtype=torch.long)
+                data_tensors.append(item)
+            data[split] = data_tensors
+        
+        if pad_src_idx == -1:
+            pad_src_idx = tokenizer_en.token_to_id(pad_token)
+        if pad_tgt_idx == -1:
+            pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
 
         def collate_helper(batch):
             return collate_fn(
                 batch,
-                dataset.en_vocab.stoi[dataset.pad_token],
-                dataset.de_vocab.stoi[dataset.pad_token],
+                en_pad_token_id=pad_src_idx,
+                de_pad_token_id=pad_tgt_idx,
+                max_length=max_length,
             )
-
-        train_dataset, test_dataset, val_dataset = dataset.get_datasets()
+        
         train_dataloader = DataLoader(
-            train_dataset,
+            [(item["en"], item["de"]) for item in data["train"]],
             batch_size=batch_size,
             shuffle=True,
             collate_fn=collate_helper,
         )
-        test_dataloader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=collate_helper,
-        )
         val_dataloader = DataLoader(
-            val_dataset,
+            [(item["en"], item["de"]) for item in data["val"]],
             batch_size=batch_size,
             shuffle=False,
             collate_fn=collate_helper,
         )
-
-        en_vocab_size = len(dataset.en_vocab)
-        de_vocab_size = len(dataset.de_vocab)
-
-        print(f"{en_vocab_size=}")
-        print(f"{de_vocab_size=}")
-
-        if vocab_src_size == -1:
-            vocab_src_size = len(train_dataset.en_vocab)
-        if vocab_tgt_size == -1:
-            vocab_tgt_size = len(train_dataset.de_vocab)
-        if pad_src_idx == -1:
-            pad_src_idx = train_dataset.en_vocab.stoi[train_dataset.pad_token]
-        if pad_tgt_idx == -1:
-            pad_tgt_idx = train_dataset.de_vocab.stoi[train_dataset.pad_token]
+        test_dataloader = DataLoader(
+            [(item["en"], item["de"]) for item in data["test"]],
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collate_helper,
+        )
 
         transformer = Transformer(
             num_encoder_layers=num_encoder_layers,
@@ -205,7 +251,6 @@ class CLI:
             dropout_rate=dropout_rate,
             max_length=max_length,
         ).to(device="cuda")
-        transformer.train()
 
         initialize_weights(transformer, weight_initialization_method)
 
@@ -237,15 +282,16 @@ class CLI:
         ax1.set_xlabel("Epoch")
         ax1.set_ylabel("Loss")
         ax1.set_title("Training and Validation Loss")
-        (line1,) = ax1.plot([], [], "r-")  # line for train loss
-        (line2,) = ax1.plot([], [], "g-")  # line for validation loss
+        (line1,) = ax1.plot([], [], "r-", label="Train loss")  # line for train loss
+        (line2,) = ax1.plot([], [], "g-", label="Validation loss")  # line for validation loss
+        ax1.legend()
 
         ax2.set_xlabel("Step")
         ax2.set_ylabel("Learning Rate")
         ax2.set_title("Learning Rate")
         (line3,) = ax2.plot([], [], "b-")  # line for learning rate
 
-        with tqdm(total=total_steps, desc="Training") as trainbar:
+        with tqdm(total=total_steps, desc="Training") as train_bar:
             for epoch in range(1, epochs + 1):
                 total_loss = 0.0
 
@@ -254,18 +300,12 @@ class CLI:
                 for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
                     en_tensors = en_tensors.to(device="cuda")
                     de_tensors = de_tensors.to(device="cuda")
+                    src_de = de_tensors[:, :-1]
+                    tgt_de = de_tensors[:, 1:].contiguous().view(-1)
+                    
                     optimizer.zero_grad()
-                    output = transformer(
-                        en_tensors, de_tensors[:, :-1]
-                    )  # drop eos token
-                    # output = output.permute(
-                    #     0, 2, 1
-                    # )  # [batch_size, de_vocab_size, max_length]
-                    # loss = criterion(output, de_tensors[:, 1:])  # drop sos token
-                    loss = criterion(
-                        output.contiguous().view(-1, de_vocab_size),
-                        de_tensors[:, 1:].contiguous().view(-1),
-                    )  # drop sos token
+                    output = transformer(en_tensors, src_de)
+                    loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
 
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
@@ -285,7 +325,7 @@ class CLI:
                     # lr_scheduler.step()
 
                     step += 1
-                    trainbar.update()
+                    train_bar.update()
 
                     if step % checkpoint_steps == 0:
                         torch.save(
@@ -317,17 +357,11 @@ class CLI:
                             ):
                                 en_tensors = en_tensors.to(device="cuda")
                                 de_tensors = de_tensors.to(device="cuda")
-                                output = transformer(
-                                    en_tensors, de_tensors[:, :-1]
-                                )  # drop eos token
-                                # output = output.permute(
-                                #     0, 2, 1
-                                # )  # [batch_size, de_vocab_size, max_length]
-                                # loss = criterion(output, de_tensors[:, 1:])  # drop sos token
-                                loss = criterion(
-                                    output.contiguous().view(-1, de_vocab_size),
-                                    de_tensors[:, 1:].contiguous().view(-1),
-                                )  # drop sos token
+                                src_de = de_tensors[:, :-1]
+                                tgt_de = de_tensors[:, 1:].contiguous().view(-1)
+
+                                output = transformer(en_tensors, src_de)
+                                loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
                                 total_loss += loss.item()
                                 valbar.update()
 
@@ -341,21 +375,26 @@ class CLI:
 
                 transformer.eval()
                 with torch.no_grad():
+                    examples = 5
                     for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                        en_tensors = en_tensors[:1]
-                        de_tensors = de_tensors[:1]
+                        en_tensors = en_tensors[:examples]
+                        de_tensors = de_tensors[:examples]
                         targets, generated = seq_to_seq_translate(
                             transformer,
                             en_tensors,
                             de_tensors,
-                            dataset.de_vocab,
-                            dataset.sos_token,
+                            tokenizer_en,
+                            tokenizer_de,
+                            sos_token,
+                            eos_token,
+                            pad_token,
                             max_length,
                         )
                         print("Running testset inference")
-                        print(f"   target: {targets[0]}")
-                        print(f"generated: {generated[0]}")
-                        print()
+                        for target, gen in zip(targets, generated):
+                            print(f"   target: {target}")
+                            print(f"generated: {gen}")
+                            print()
                         break
 
                 line1.set_xdata(range(1, len(train_losses) + 1))
