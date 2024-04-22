@@ -3,8 +3,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from .constants import NEGATIVE_INFINITY
-
 T = torch.Tensor
 
 
@@ -49,7 +47,7 @@ class ScaledDotProductAttention(nn.Module):
 
         # 3. Mask
         if mask is not None:
-            x = x.masked_fill(mask == 0, value=NEGATIVE_INFINITY)
+            x = x.masked_fill(mask == False, value=1e-9)
 
         # 4. SoftMax
         x = self.softmax(x)

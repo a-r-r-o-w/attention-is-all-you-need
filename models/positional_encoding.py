@@ -20,8 +20,8 @@ class PositionalEncoding(nn.Module):
         self.embedding_size = embedding_size
         self.max_length = max_length
 
-        two_i = torch.arange(0, embedding_size, 2).float()
-        numerator = torch.arange(0, max_length).float().unsqueeze(1)
+        two_i = torch.arange(0, embedding_size, 2, dtype=torch.float32)
+        numerator = torch.arange(0, max_length, dtype=torch.float32).unsqueeze(1)
         denominator = 10000.0 ** (two_i / embedding_size)
 
         pe = torch.zeros(max_length, embedding_size)
@@ -34,4 +34,4 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x: T) -> T:
         seq_length = x.size(1)
-        return self.pe[:seq_length, :]
+        return x + self.pe[:seq_length, :]

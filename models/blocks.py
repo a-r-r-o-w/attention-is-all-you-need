@@ -60,7 +60,7 @@ class EncoderBlock(nn.Module):
 
     def forward(self, x: T, mask: Optional[T] = None) -> T:
         # 1. MultiHead Attention
-        residual = x.clone()
+        residual = x
         x = self.mha(x, x, x, mask)
 
         # 2. Dropout, Residual addition and Normalization 1
@@ -69,7 +69,7 @@ class EncoderBlock(nn.Module):
         x = self.norm1(x)
 
         # 3. Positionwise FFN
-        residual = x.clone()
+        residual = x
         x = self.pffn(x)
 
         # 4. Dropout, Residual addition and Normalization 2
@@ -147,7 +147,7 @@ class DecoderBlock(nn.Module):
         self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
     ) -> T:
         # 1. Masked MultiHead Attention
-        residual = x.clone()
+        residual = x
         x = self.mha1(x, x, x, mask)
 
         # 2. Dropout, Residual addition and Normalization 1
@@ -156,7 +156,7 @@ class DecoderBlock(nn.Module):
         x = self.norm1(x)
 
         # 3. MultiHead Encoder-Decoder Attention
-        residual = x.clone()
+        residual = x
         x = self.mha2(x, enc_x, enc_x, dec_enc_mask)
 
         # 4. Dropout, Residual addition and Normalization 2
@@ -165,7 +165,7 @@ class DecoderBlock(nn.Module):
         x = self.norm2(x)
 
         # 5. Positionwise FFN
-        residual = x.clone()
+        residual = x
         x = self.pffn(x)
 
         # 6. Dropout, Residual addition and Normalization 3

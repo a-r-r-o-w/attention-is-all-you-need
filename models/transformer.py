@@ -209,13 +209,14 @@ class Transformer(nn.Module):
         self.linear = nn.Linear(
             embedding_size, vocab_tgt_size, bias=use_final_linear_bias
         )
-        self.softmax = nn.Softmax(dim=2)
+        # self.softmax = nn.Softmax(dim=2)
 
-    def _get_mask(self, x: T, pad_idx: int) -> T:
+    def _get_src_mask(self, x: T, pad_idx: int) -> T:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
-        return (x != pad_idx).unsqueeze(1).unsqueeze(2)
+        pad_mask = (x != pad_idx).unsqueeze(1).unsqueeze(2)
+        return pad_mask
 
-    def _get_shifted_mask(self, x: T) -> T:
+    def _get_tgt_mask(self, x: T, pad_idx: int) -> T:
         r"""Helper utility to get mask for decoder. The decoder should not pay attention to future tokens.
 
         This returns a tensor that looks like:
@@ -228,27 +229,27 @@ class Transformer(nn.Module):
         """
         # batch_size = x.size(0)
         seq_length = x.size(1)
-        ones = torch.ones((1, seq_length, seq_length), device=x.device)
-        tril = torch.tril(ones).bool()
-        return tril
+        pad_mask = (x != pad_idx).unsqueeze(1).unsqueeze(2)
+        causal_mask = torch.ones((1, seq_length, seq_length), device=x.device)
+        causal_mask = torch.tril(causal_mask).bool()
+        mask = pad_mask & causal_mask
+        return mask
 
     def forward(self, src_x: T, tgt_x: T) -> T:
         # 1. Prepare masks for encoder and decoder
-        src_mask = self._get_mask(src_x, self.pad_src_idx)
-        tgt_mask = self._get_mask(tgt_x, self.pad_tgt_idx) & self._get_shifted_mask(
-            tgt_x
-        )
+        src_mask = self._get_src_mask(src_x, self.pad_src_idx)
+        tgt_mask = self._get_tgt_mask(tgt_x, self.pad_tgt_idx)
 
         # 2. Convert tokens to embeddings
         src_x = self.src_emb(src_x)
         tgt_x = self.tgt_emb(tgt_x)
 
         # 3. Apply positional encoding
-        src_pe = self.pe(src_x)
-        tgt_pe = self.pe(tgt_x)
         self.scale = self.scale.to(src_x.device, dtype=src_x.dtype)
-        src_x = src_x * self.scale + src_pe
-        tgt_x = tgt_x * self.scale + tgt_pe
+        src_x = src_x * self.scale
+        tgt_x = tgt_x * self.scale
+        src_x = self.pe(src_x)
+        tgt_x = self.pe(tgt_x)
 
         # 4. Regularization after embed as described in section 5.4 of the paper
         src_x = self.src_dropout(src_x)
@@ -261,6 +262,50 @@ class Transformer(nn.Module):
 
         # 6. Linear projection to get probabilities for output tokens using softmax
         x = self.linear(x)
-        x = self.softmax(x)
+        # x = self.softmax(x)
+
+        return x
+
+    def encode(self, src_x: T) -> T:
+        # 1. Prepare masks for encoder
+        src_mask = self._get_src_mask(src_x, self.pad_src_idx)
+
+        # 2. Convert tokens to embeddings
+        src_x = self.src_emb(src_x)
+
+        # 3. Apply positional encoding
+        self.scale = self.scale.to(src_x.device, dtype=src_x.dtype)
+        src_x = src_x * self.scale
+        src_x = self.pe(src_x)
+
+        # 4. Regularization after embed as described in section 5.4 of the paper
+        src_x = self.src_dropout(src_x)
+
+        # 5. Forward pass through encoder
+        x = self.encoder(src_x, src_mask)
+
+        return x
+
+    def decode(self, tgt_x: T, enc_x: T) -> T:
+        # 1. Prepare masks for decoder
+        tgt_mask = self._get_tgt_mask(tgt_x, self.pad_tgt_idx)
+
+        # 2. Convert tokens to embeddings
+        tgt_x = self.tgt_emb(tgt_x)
+
+        # 3. Apply positional encoding
+        self.scale = self.scale.to(tgt_x.device, dtype=tgt_x.dtype)
+        tgt_x = tgt_x * self.scale
+        tgt_x = self.pe(tgt_x)
+
+        # 4. Regularization after embed as described in section 5.4 of the paper
+        tgt_x = self.tgt_dropout(tgt_x)
+
+        # 5. Forward pass through decoder
+        x = self.decoder(tgt_x, enc_x, tgt_mask)
+
+        # 6. Linear projection to get probabilities for output tokens using softmax
+        x = self.linear(x)
+        # x = self.softmax(x)
 
         return x
