@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -14,9 +14,7 @@ class ScaledDotProductAttention(nn.Module):
         temperature (`float`, *optional*):
     """
 
-    def __init__(
-        self, query_key_size: int, *, temperature: Optional[float] = None
-    ) -> None:
+    def __init__(self, query_key_size: int) -> None:
         super().__init__()
 
         # In the original paper, product of query and key_T are normalized by square root of
@@ -24,13 +22,10 @@ class ScaledDotProductAttention(nn.Module):
         # temperature is not `None`, it will be used. Otherwise, square root of `embedding_size`
         # will be used.
         self.query_key_size = query_key_size
-
+        
         scale = torch.sqrt(torch.FloatTensor([query_key_size]))
-        if temperature is not None:
-            scale = torch.FloatTensor([temperature])
-
         self.register_buffer("scale", scale)
-        self.scale: torch.FloatTensor
+        self.scale: T
 
         self.softmax = nn.Softmax(dim=3)
 
@@ -47,7 +42,7 @@ class ScaledDotProductAttention(nn.Module):
 
         # 3. Mask
         if mask is not None:
-            x = x.masked_fill(mask == False, value=1e-9)
+            x = x.masked_fill(mask == False, value=-1e9)
 
         # 4. SoftMax
         x = self.softmax(x)
