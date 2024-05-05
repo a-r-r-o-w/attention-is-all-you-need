@@ -45,19 +45,18 @@ This should give you the visual representation of the sin and cosine positional 
 
 ### TODO
 
-- [ ] Verify model architecture to be faithful with the original paper
-- [ ] Verify if all hyperparameters are set to correct defaults
-- [ ] Verify if layernorm and dropouts are correct
+- [x] Verify model architecture to be faithful with the original paper
+- [x] Verify if all hyperparameters are set to correct defaults
+- [x] Verify if layernorm and dropouts are correct
 - [x] Implement the training loop
 - [x] Implement the LR scheduler
+- [x] Implement greedy decoding
 - [ ] Implement beam search decoding
 - [ ] Implement BLEU score metric
-- [ ] Play around with different hyperparameters and try to really understand things
 - [ ] Implement Attention maps for visualization
 - [ ] Improve documentation
 - [x] Visualize positional encoding
 - [ ] Compare positional encoding against learned embeddings for position as suggested in paper
-- [ ] Allow different number of encoder-decoder blocks. Experiment with decoder-only model as done in a few architectures
 - [ ] Improve README and add illustrations where required
 
 ### References
