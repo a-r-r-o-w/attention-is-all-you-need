@@ -26,6 +26,6 @@ python3 main.py train \
   --seed=42 \
   --validation_epochs=1 \
   --checkpoint_path="checkpoints" \
-  --checkpoint_name="transformer" \
+  --experiment_name="transformer" \
   --checkpoint_steps=10000 \
   --gradient_accumulation_steps=1 \
