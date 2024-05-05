@@ -22,7 +22,7 @@ class ScaledDotProductAttention(nn.Module):
         # temperature is not `None`, it will be used. Otherwise, square root of `embedding_size`
         # will be used.
         self.query_key_size = query_key_size
-        
+
         scale = torch.sqrt(torch.FloatTensor([query_key_size]))
         self.register_buffer("scale", scale)
         self.scale: T

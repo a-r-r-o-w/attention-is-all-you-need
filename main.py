@@ -29,19 +29,21 @@ def greedy_decode(
     src: torch.Tensor,
     max_length: int,
     sos_token_idx: int,
-    eos_token_idx: int
+    eos_token_idx: int,
 ) -> torch.Tensor:
     encoded = transformer.encode(src)
     outputs = torch.ones(1, 1).fill_(sos_token_idx).type_as(src).to(src.device)
-    
+
     for _ in range(max_length - 1):
         output = transformer.decode(outputs, encoded)
         output = output.argmax(dim=-1)
         pred_token = output[0, -1].item()
-        outputs = torch.cat([outputs, torch.ones(1, 1).fill_(pred_token).type_as(src)], dim=-1)
+        outputs = torch.cat(
+            [outputs, torch.ones(1, 1).fill_(pred_token).type_as(src)], dim=-1
+        )
         if pred_token == eos_token_idx:
             break
-    
+
     # print(outputs)
     return outputs
 
@@ -64,19 +66,33 @@ def seq_to_seq_translate(
     eos_token_idx = tokenizer_de.token_to_id(eos_token)
     pad_token_idx = tokenizer_de.token_to_id(pad_token)
     outputs = []
-    
+
     for i in range(current_batch_size):
         src = en_tensors[i].unsqueeze(0)
         tgt = de_tensors[i].unsqueeze(0)
-        output = greedy_decode(transformer, src, max_length, sos_token_idx, eos_token_idx)[:max_length]
+        output = greedy_decode(
+            transformer, src, max_length, sos_token_idx, eos_token_idx
+        )[:max_length]
         if output.size(1) < max_length:
-            output = torch.cat([output, torch.ones(1, max_length - output.size(1)).fill_(pad_token_idx).type_as(src)], dim=-1)
+            output = torch.cat(
+                [
+                    output,
+                    torch.ones(1, max_length - output.size(1))
+                    .fill_(pad_token_idx)
+                    .type_as(src),
+                ],
+                dim=-1,
+            )
         outputs.append(output)
-    
+
     outputs = torch.cat(outputs, dim=0)
 
-    targets = tokenizer_de.decode_batch(de_tensors.cpu().numpy(), skip_special_tokens=False)
-    generated = tokenizer_de.decode_batch(outputs.cpu().numpy(), skip_special_tokens=False)
+    targets = tokenizer_de.decode_batch(
+        de_tensors.cpu().numpy(), skip_special_tokens=False
+    )
+    generated = tokenizer_de.decode_batch(
+        outputs.cpu().numpy(), skip_special_tokens=False
+    )
 
     return targets, generated
 
@@ -155,7 +171,7 @@ class CLI:
                 for split, filename in files.items():
                     if split not in ["train", "val", "test"]:
                         raise ValueError(f"Split '{split}' is not supported")
-                    
+
                     data[split] = []
 
                     with open(os.path.join(path, filename), "r") as f:
@@ -164,37 +180,57 @@ class CLI:
                             item["en"] = item["en"].lower()
                             item["de"] = item["de"].lower()
                             data[split].append(item)
-                    
+
                     # data[split] = data[split][:10000]
 
-                sentences_en = [item["en"] for split in data.keys() for item in data[split]]
-                sentences_de = [item["de"] for split in data.keys() for item in data[split]]
+                sentences_en = [
+                    item["en"] for split in data.keys() for item in data[split]
+                ]
+                sentences_de = [
+                    item["de"] for split in data.keys() for item in data[split]
+                ]
 
                 tokenizer_en = Tokenizer(BPE(unk_token=unk_token))
                 tokenizer_de = Tokenizer(BPE(unk_token=unk_token))
                 tokenizer_en.pre_tokenizer = Whitespace()
                 tokenizer_de.pre_tokenizer = Whitespace()
 
-                trainer_en = BpeTrainer(special_tokens=[sos_token, eos_token, unk_token, pad_token], vocab_size=vocab_src_size, min_frequency=2)
-                trainer_de = BpeTrainer(special_tokens=[sos_token, eos_token, unk_token, pad_token], vocab_size=vocab_tgt_size, min_frequency=2)
+                trainer_en = BpeTrainer(
+                    special_tokens=[sos_token, eos_token, unk_token, pad_token],
+                    vocab_size=vocab_src_size,
+                    min_frequency=2,
+                )
+                trainer_de = BpeTrainer(
+                    special_tokens=[sos_token, eos_token, unk_token, pad_token],
+                    vocab_size=vocab_tgt_size,
+                    min_frequency=2,
+                )
 
                 tokenizer_en.train_from_iterator(sentences_en, trainer_en)
                 tokenizer_de.train_from_iterator(sentences_de, trainer_de)
             case _:
                 raise ValueError(f"Dataset {dataset_name} not supported")
-        
+
         sos_token_idx = tokenizer_en.token_to_id(sos_token)
         eos_token_idx = tokenizer_en.token_to_id(eos_token)
         for split in data.keys():
             data_tensors = []
             for item in data[split]:
-                item["en"] = [sos_token_idx] + tokenizer_en.encode(item["en"]).ids + [eos_token_idx]
-                item["de"] = [sos_token_idx] + tokenizer_de.encode(item["de"]).ids + [eos_token_idx]
+                item["en"] = (
+                    [sos_token_idx]
+                    + tokenizer_en.encode(item["en"]).ids
+                    + [eos_token_idx]
+                )
+                item["de"] = (
+                    [sos_token_idx]
+                    + tokenizer_de.encode(item["de"]).ids
+                    + [eos_token_idx]
+                )
                 item["en"] = torch.tensor(item["en"][:max_length], dtype=torch.long)
                 item["de"] = torch.tensor(item["de"][:max_length], dtype=torch.long)
                 data_tensors.append(item)
             data[split] = data_tensors
-        
+
         if pad_src_idx == -1:
             pad_src_idx = tokenizer_en.token_to_id(pad_token)
         if pad_tgt_idx == -1:
@@ -207,7 +243,7 @@ class CLI:
                 de_pad_token_id=pad_tgt_idx,
                 max_length=max_length,
             )
-        
+
         train_dataloader = DataLoader(
             [(item["en"], item["de"]) for item in data["train"]],
             batch_size=batch_size,
@@ -299,10 +335,12 @@ class CLI:
                     de_tensors = de_tensors.to(device="cuda")
                     src_de = de_tensors[:, :-1]
                     tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-                    
+
                     optimizer.zero_grad()
                     output = transformer(en_tensors, src_de)
-                    loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
+                    loss = criterion(
+                        output.contiguous().view(-1, vocab_tgt_size), tgt_de
+                    )
 
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
@@ -358,7 +396,9 @@ class CLI:
                                 tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
                                 output = transformer(en_tensors, src_de)
-                                loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
+                                loss = criterion(
+                                    output.contiguous().view(-1, vocab_tgt_size), tgt_de
+                                )
                                 total_loss += loss.item()
                                 valbar.update()
 
@@ -375,7 +415,8 @@ class CLI:
                         de_tensors[:5, 1:].cpu().numpy(), skip_special_tokens=False
                     )
                     output_tokens = tokenizer_de.decode_batch(
-                        output[:5].argmax(dim=-1).cpu().numpy(), skip_special_tokens=False
+                        output[:5].argmax(dim=-1).cpu().numpy(),
+                        skip_special_tokens=False,
                     )
 
                     for tgt, out in zip(tgt_tokens, output_tokens):
@@ -425,7 +466,7 @@ class CLI:
 
         # plt.ioff()
         # plt.show()
-        
+
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(
                 {
@@ -465,7 +506,7 @@ class CLI:
                 f,
                 indent=4,
             )
-        
+
         with open(os.path.join(experiment_dir, f"train.json"), "w") as f:
             json.dump(
                 {
@@ -476,7 +517,7 @@ class CLI:
                 f,
                 indent=4,
             )
-        
+
         torch.save(
             transformer.state_dict(),
             os.path.join(experiment_dir, "transformer_final.pth"),
@@ -484,7 +525,7 @@ class CLI:
 
         tokenizer_en.save(os.path.join(experiment_dir, "tokenizer_en.json"))
         tokenizer_de.save(os.path.join(experiment_dir, "tokenizer_de.json"))
-    
+
     def inference(
         self,
         checkpoint_path: str,
@@ -498,11 +539,11 @@ class CLI:
     ) -> None:
         if isinstance(input, str):
             input = [input]
-        
+
         experiment_dir = os.path.join(checkpoint_path, experiment_name)
         with open(os.path.join(experiment_dir, "config.json"), "r") as f:
             config = json.load(f)
-        
+
         # read model
         transformer = Transformer(
             num_encoder_layers=config["num_encoder_layers"],
@@ -528,11 +569,16 @@ class CLI:
         ).to(device="cuda")
 
         transformer.load_state_dict(
-            torch.load(os.path.join(experiment_dir, f"{experiment_name}_final.pth")), strict=False
+            torch.load(os.path.join(experiment_dir, f"{experiment_name}_final.pth")),
+            strict=False,
         )
 
-        tokenizer_en = Tokenizer.from_file(os.path.join(experiment_dir, "tokenizer_en.json"))
-        tokenizer_de = Tokenizer.from_file(os.path.join(experiment_dir, "tokenizer_de.json"))
+        tokenizer_en = Tokenizer.from_file(
+            os.path.join(experiment_dir, "tokenizer_en.json")
+        )
+        tokenizer_de = Tokenizer.from_file(
+            os.path.join(experiment_dir, "tokenizer_de.json")
+        )
 
         sos_token_idx = tokenizer_en.token_to_id("<sos>")
         eos_token_idx = tokenizer_en.token_to_id("<eos>")
@@ -540,14 +586,22 @@ class CLI:
         transformer.eval()
         with torch.no_grad():
             for i, sentence in enumerate(input):
-                en_tokens = [sos_token_idx] + tokenizer_en.encode(sentence.lower()).ids + [eos_token_idx]
-                en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(device="cuda")
+                en_tokens = (
+                    [sos_token_idx]
+                    + tokenizer_en.encode(sentence.lower()).ids
+                    + [eos_token_idx]
+                )
+                en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(
+                    device="cuda"
+                )
 
                 de_tokens = [sos_token_idx]
                 memory = transformer.encode(en_tensors)
 
                 for _ in range(max_length - 1):
-                    de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(device="cuda")
+                    de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(
+                        device="cuda"
+                    )
                     logits = transformer.decode(de_tensors, memory)
                     logits /= temperature
 
@@ -556,21 +610,27 @@ class CLI:
                         logits[logits < v[:, -1].unsqueeze(0)] = -float("inf")
 
                     if top_p > 0.0:
-                        sorted_logits, sorted_indices = torch.sort(logits[:, -1, :], descending=True)
-                        cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                        sorted_logits, sorted_indices = torch.sort(
+                            logits[:, -1, :], descending=True
+                        )
+                        cumulative_probs = torch.cumsum(
+                            torch.softmax(sorted_logits, dim=-1), dim=-1
+                        )
                         sorted_indices_to_remove = cumulative_probs > top_p
-                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[
+                            ..., :-1
+                        ].clone()
                         sorted_indices_to_remove[..., 0] = 0
                         indices_to_remove = sorted_indices[sorted_indices_to_remove]
                         logits[:, -1, indices_to_remove] = -float("inf")
 
                     probs = torch.softmax(logits[:, -1, :], dim=-1)
-                    
+
                     if sample:
                         pred_token = torch.multinomial(probs, num_samples=1)
                     else:
                         _, pred_token = torch.topk(probs, k=1, dim=-1)
-                    
+
                     de_tokens.append(pred_token.item())
 
                     if pred_token.item() == eos_token_idx:
@@ -598,21 +658,20 @@ class CLI:
         #             if top_k > 0:
         #                 v, _ = torch.topk(logits[:, -1, :], top_k, dim=-1)
         #                 logits[logits < v[:, -1].unsqueeze(0)] = -float("inf")
-                    
+
         #             probs = logits.softmax(dim=2)
         #             _, idx_next = torch.topk(probs, k=1, dim=2)
         #             print(idx_next.shape)
         #             pred_token = idx_next[0, -1, 0].item()
         #             de_tokens.append(pred_token)
-                    
+
         #             if pred_token == eos_token_idx:
         #                 break
-                
+
         #         output = tokenizer_de.decode(de_tokens, skip_special_tokens=False)
         #         print(f"Input: {sentence}")
         #         print(f"Output: {output}")
         #         print()
-
 
     def visualize_positional_encoding(
         self,

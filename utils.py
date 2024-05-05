@@ -44,12 +44,14 @@ def initialize_weights(module: nn.Module, method: str, **kwargs) -> None:
     module.apply(init)
 
 
-def pad_sequence(sequences: List[torch.Tensor], padding_value: int, max_length: int) -> torch.Tensor:
+def pad_sequence(
+    sequences: List[torch.Tensor], padding_value: int, max_length: int
+) -> torch.Tensor:
     padded_sequences = torch.full(
         (len(sequences), max_length), padding_value, dtype=torch.long
     )
     for i, sequence in enumerate(sequences):
-        padded_sequences[i, :sequence.size(0)] = sequence
+        padded_sequences[i, : sequence.size(0)] = sequence
     return padded_sequences
 
 
@@ -60,6 +62,10 @@ def collate_fn(
     max_length: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     en_tensors, de_tensors = zip(*batch)
-    en_tensors = pad_sequence(en_tensors, padding_value=en_pad_token_id, max_length=max_length)
-    de_tensors = pad_sequence(de_tensors, padding_value=de_pad_token_id, max_length=max_length)
+    en_tensors = pad_sequence(
+        en_tensors, padding_value=en_pad_token_id, max_length=max_length
+    )
+    de_tensors = pad_sequence(
+        de_tensors, padding_value=de_pad_token_id, max_length=max_length
+    )
     return en_tensors, de_tensors
