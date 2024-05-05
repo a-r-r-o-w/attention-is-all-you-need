@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from .utils import get_activation
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class PositionwiseFeedForward(nn.Module):

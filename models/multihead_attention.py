@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from .scaled_dot_product_attention import ScaledDotProductAttention
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class MultiHeadAttention(nn.Module):
@@ -24,7 +24,6 @@ class MultiHeadAttention(nn.Module):
         use_key_bias: bool = False,
         use_value_bias: bool = False,
         use_final_linear_mha_bias: bool = False,
-        temperature: Optional[float] = None,
     ) -> None:
         super().__init__()
 
@@ -54,10 +53,7 @@ class MultiHeadAttention(nn.Module):
             self.embedding_size, self.value_size, bias=use_value_bias
         )
 
-        self.scaled_dot_product_attn = ScaledDotProductAttention(
-            query_key_size=query_key_size,
-            temperature=temperature,
-        )
+        self.scaled_dot_product_attn = ScaledDotProductAttention(query_key_size)
 
         self.linear_final = nn.Linear(
             self.value_size, self.embedding_size, bias=use_final_linear_mha_bias

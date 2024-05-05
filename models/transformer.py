@@ -6,7 +6,7 @@ import torch.nn as nn
 from .blocks import DecoderBlock, EncoderBlock
 from .positional_encoding import PositionalEncoding
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class Encoder(nn.Module):
@@ -29,7 +29,6 @@ class Encoder(nn.Module):
         use_value_bias: bool = False,
         use_ffn_bias_1: bool = True,
         use_ffn_bias_2: bool = True,
-        temperature: Optional[float] = None,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -48,7 +47,6 @@ class Encoder(nn.Module):
                     use_value_bias=use_value_bias,
                     use_ffn_bias_1=use_ffn_bias_1,
                     use_ffn_bias_2=use_ffn_bias_2,
-                    temperature=temperature,
                     dropout_rate=dropout_rate,
                 )
                 for _ in range(num_layers)
@@ -83,7 +81,6 @@ class Decoder(nn.Module):
         use_value_bias: bool = False,
         use_ffn_bias_1: bool = True,
         use_ffn_bias_2: bool = True,
-        temperature: Optional[float] = None,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -102,7 +99,6 @@ class Decoder(nn.Module):
                     use_value_bias=use_value_bias,
                     use_ffn_bias_1=use_ffn_bias_1,
                     use_ffn_bias_2=use_ffn_bias_2,
-                    temperature=temperature,
                     dropout_rate=dropout_rate,
                 )
                 for _ in range(num_layers)
@@ -151,7 +147,6 @@ class Transformer(nn.Module):
         use_ffn_bias_1: bool = True,
         use_ffn_bias_2: bool = True,
         use_final_linear_bias: bool = False,
-        temperature: Optional[float] = None,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
     ) -> None:
@@ -185,7 +180,6 @@ class Transformer(nn.Module):
             use_value_bias=use_value_bias,
             use_ffn_bias_1=use_ffn_bias_1,
             use_ffn_bias_2=use_ffn_bias_2,
-            temperature=temperature,
             dropout_rate=dropout_rate,
         )
 
@@ -202,21 +196,19 @@ class Transformer(nn.Module):
             use_value_bias=use_value_bias,
             use_ffn_bias_1=use_ffn_bias_1,
             use_ffn_bias_2=use_ffn_bias_2,
-            temperature=temperature,
             dropout_rate=dropout_rate,
         )
 
         self.linear = nn.Linear(
             embedding_size, vocab_tgt_size, bias=use_final_linear_bias
         )
-        # self.softmax = nn.Softmax(dim=2)
 
-    def _get_src_mask(self, x: T, pad_idx: int) -> T:
+    def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
-        pad_mask = (x != pad_idx).unsqueeze(1).unsqueeze(2)
+        pad_mask = (x != pad_idx).bool().unsqueeze(1).unsqueeze(2)
         return pad_mask
 
-    def _get_tgt_mask(self, x: T, pad_idx: int) -> T:
+    def _get_tgt_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for decoder. The decoder should not pay attention to future tokens.
 
         This returns a tensor that looks like:
@@ -262,7 +254,6 @@ class Transformer(nn.Module):
 
         # 6. Linear projection to get probabilities for output tokens using softmax
         x = self.linear(x)
-        # x = self.softmax(x)
 
         return x
 
@@ -306,6 +297,5 @@ class Transformer(nn.Module):
 
         # 6. Linear projection to get probabilities for output tokens using softmax
         x = self.linear(x)
-        # x = self.softmax(x)
 
         return x

@@ -6,7 +6,7 @@ import torch.nn as nn
 from .multihead_attention import MultiHeadAttention
 from .position_wise_ffn import PositionwiseFeedForward
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class EncoderBlock(nn.Module):
@@ -29,7 +29,6 @@ class EncoderBlock(nn.Module):
         use_final_linear_mha_bias: bool = False,
         use_ffn_bias_1: bool = True,
         use_ffn_bias_2: bool = True,
-        temperature: Optional[float] = None,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -42,7 +41,6 @@ class EncoderBlock(nn.Module):
             use_query_bias=use_query_bias,
             use_key_bias=use_key_bias,
             use_value_bias=use_value_bias,
-            temperature=temperature,
             use_final_linear_mha_bias=use_final_linear_mha_bias,
         )
         self.dropout1 = nn.Dropout(dropout_rate)
@@ -100,7 +98,6 @@ class DecoderBlock(nn.Module):
         use_final_linear_mha_bias: bool = False,
         use_ffn_bias_1: bool = True,
         use_ffn_bias_2: bool = True,
-        temperature: Optional[float] = None,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -113,7 +110,6 @@ class DecoderBlock(nn.Module):
             use_query_bias=use_query_bias,
             use_key_bias=use_key_bias,
             use_value_bias=use_value_bias,
-            temperature=temperature,
             use_final_linear_mha_bias=use_final_linear_mha_bias,
         )
         self.dropout1 = nn.Dropout(dropout_rate)
@@ -127,7 +123,6 @@ class DecoderBlock(nn.Module):
             use_query_bias=use_query_bias,
             use_key_bias=use_key_bias,
             use_value_bias=use_value_bias,
-            temperature=temperature,
             use_final_linear_mha_bias=use_final_linear_mha_bias,
         )
         self.dropout2 = nn.Dropout(dropout_rate)

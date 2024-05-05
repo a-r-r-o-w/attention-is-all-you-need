@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-T = torch.Tensor
+T = torch.FloatTensor
 
 
 class PositionalEncoding(nn.Module):
@@ -24,14 +24,11 @@ class PositionalEncoding(nn.Module):
         numerator = torch.arange(0, max_length, dtype=torch.float32).unsqueeze(1)
         denominator = 10000.0 ** (two_i / embedding_size)
 
-        pe = torch.zeros(max_length, embedding_size)
-        pe[:, 0::2] = torch.sin(numerator / denominator)
-        pe[:, 1::2] = torch.cos(numerator / denominator)
-
-        # PE does not require gradients
-        self.register_parameter("pe", torch.nn.Parameter(pe, requires_grad=False))
-        self.pe: torch.nn.Parameter
+        self.pe = torch.zeros(max_length, embedding_size)
+        self.pe[:, 0::2] = torch.sin(numerator / denominator)
+        self.pe[:, 1::2] = torch.cos(numerator / denominator)
 
     def forward(self, x: T) -> T:
         seq_length = x.size(1)
+        self.pe = self.pe.to(x.device)
         return x + self.pe[:seq_length, :]
