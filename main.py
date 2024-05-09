@@ -15,86 +15,17 @@ from tokenizers.pre_tokenizers import Whitespace
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models import Transformer, PositionalEncoding, LRScheduler
+from attention_is_all_you_need import (
+    EncoderDecoderTransformer,
+    PositionalEncoding,
+    LRScheduler,
+)
 from utils import get_summary, initialize_weights, collate_fn
 
 
 def _print_with_line(content: str, line_length: int = 80):
     print(content)
     print("-" * line_length)
-
-
-def greedy_decode(
-    transformer: Transformer,
-    src: torch.Tensor,
-    max_length: int,
-    sos_token_idx: int,
-    eos_token_idx: int,
-) -> torch.Tensor:
-    encoded = transformer.encode(src)
-    outputs = torch.ones(1, 1).fill_(sos_token_idx).type_as(src).to(src.device)
-
-    for _ in range(max_length - 1):
-        output = transformer.decode(outputs, encoded)
-        output = output.argmax(dim=-1)
-        pred_token = output[0, -1].item()
-        outputs = torch.cat(
-            [outputs, torch.ones(1, 1).fill_(pred_token).type_as(src)], dim=-1
-        )
-        if pred_token == eos_token_idx:
-            break
-
-    # print(outputs)
-    return outputs
-
-
-def seq_to_seq_translate(
-    transformer: Transformer,
-    en_tensors: torch.Tensor,
-    de_tensors: torch.Tensor,
-    tokenizer_en: Tokenizer,
-    tokenizer_de: Tokenizer,
-    sos_token: str,
-    eos_token: str,
-    pad_token: str,
-    max_length: int,
-):
-    en_tensors = en_tensors.to(device="cuda")
-    de_tensors = de_tensors.to(device="cuda")
-    current_batch_size = en_tensors.shape[0]
-    sos_token_idx = tokenizer_de.token_to_id(sos_token)
-    eos_token_idx = tokenizer_de.token_to_id(eos_token)
-    pad_token_idx = tokenizer_de.token_to_id(pad_token)
-    outputs = []
-
-    for i in range(current_batch_size):
-        src = en_tensors[i].unsqueeze(0)
-        tgt = de_tensors[i].unsqueeze(0)
-        output = greedy_decode(
-            transformer, src, max_length, sos_token_idx, eos_token_idx
-        )[:max_length]
-        if output.size(1) < max_length:
-            output = torch.cat(
-                [
-                    output,
-                    torch.ones(1, max_length - output.size(1))
-                    .fill_(pad_token_idx)
-                    .type_as(src),
-                ],
-                dim=-1,
-            )
-        outputs.append(output)
-
-    outputs = torch.cat(outputs, dim=0)
-
-    targets = tokenizer_de.decode_batch(
-        de_tensors.cpu().numpy(), skip_special_tokens=False
-    )
-    generated = tokenizer_de.decode_batch(
-        outputs.cpu().numpy(), skip_special_tokens=False
-    )
-
-    return targets, generated
 
 
 class CLI:
@@ -113,9 +44,9 @@ class CLI:
         vocab_tgt_size: int = 25000,
         pad_src_idx: int = 24999,
         pad_tgt_idx: int = 24999,
-        embedding_size: int = 512,  # `d_model` in paper
-        query_key_size: int = 64,  # `d_k` in paper
-        value_size: int = 64,  # `d_v` in paper
+        embedding_dim: int = 512,  # `d_model` in paper
+        query_key_dim: int = 64,  # `d_k` in paper
+        value_dim: int = 64,  # `d_v` in paper
         num_heads: int = 8,  # `h` in paper
         ffn_hidden_dim: int = 2048,
         ffn_activation: str = "relu",
@@ -263,16 +194,16 @@ class CLI:
             collate_fn=collate_helper,
         )
 
-        transformer = Transformer(
+        transformer = EncoderDecoderTransformer(
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
             vocab_src_size=vocab_src_size,
             vocab_tgt_size=vocab_tgt_size,
             pad_src_idx=pad_src_idx,
             pad_tgt_idx=pad_tgt_idx,
-            embedding_size=embedding_size,
-            query_key_size=query_key_size,
-            value_size=value_size,
+            embedding_dim=embedding_dim,
+            query_key_dim=query_key_dim,
+            value_dim=value_dim,
             num_heads=num_heads,
             ffn_hidden_dim=ffn_hidden_dim,
             ffn_activation=ffn_activation,
@@ -300,13 +231,14 @@ class CLI:
             eps=1e-9,
         )
         # lr_scheduler = LRScheduler(
-        #     optimizer, embedding_size=embedding_size, warmup_steps=4000
+        #     optimizer, embedding_dim=embedding_dim, warmup_steps=4000
         # )
 
         criterion = nn.CrossEntropyLoss(ignore_index=pad_tgt_idx)
 
         train_losses = []
         val_losses = []
+        test_losses = []
         learning_rates = []
         step = 0
         total_steps = len(train_dataloader) * epochs
@@ -373,10 +305,8 @@ class CLI:
                 train_losses.append(total_loss / len(train_dataloader))
                 print()
                 print(f"Epoch: {epoch}")
-                print(
-                    f"Train Loss: [{total_loss=:.3f}] {total_loss / len(train_dataloader):.3f}"
-                )
-                print(f"Perplexity: {np.exp(total_loss / len(train_dataloader)):.3f}")
+                print(f"Train Loss: [{total_loss=:.3f}] {train_losses[-1]:.3f}")
+                print(f"Perplexity: {np.exp(train_losses[-1]):.3f}")
                 print()
 
                 # val set
@@ -404,10 +334,8 @@ class CLI:
 
                     val_losses.append(total_loss / len(val_dataloader))
                     print()
-                    print(
-                        f"Validation Loss: [{total_loss=:.3f}] {total_loss / len(val_dataloader):.3f}"
-                    )
-                    print(f"Perplexity: {np.exp(total_loss / len(val_dataloader)):.3f}")
+                    print(f"Validation Loss: [{total_loss=:.3f}] {val_losses[-1]:.3f}")
+                    print(f"Perplexity: {np.exp(val_losses[-1]):.3f}")
                     print()
 
                     print("Running inference on validation set")
@@ -424,48 +352,27 @@ class CLI:
                         print(f"generated: {out}")
                         print()
 
-                # transformer.eval()
-                # with torch.no_grad():
-                #     examples = 5
-                #     for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                #         en_tensors = en_tensors[:examples]
-                #         de_tensors = de_tensors[:examples]
-                #         targets, generated = seq_to_seq_translate(
-                #             transformer,
-                #             en_tensors,
-                #             de_tensors,
-                #             tokenizer_en,
-                #             tokenizer_de,
-                #             sos_token,
-                #             eos_token,
-                #             pad_token,
-                #             max_length,
-                #         )
-                #         print("Running testset inference")
-                #         for target, gen in zip(targets, generated):
-                #             print(f"   target: {target}")
-                #             print(f"generated: {gen}")
-                #             print()
-                #         break
+                total_loss = 0.0
+                transformer.eval()
+                with torch.no_grad():
+                    with tqdm(total=len(test_dataloader), desc="Testing") as testbar:
+                        for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
+                            en_tensors = en_tensors.to(device="cuda")
+                            de_tensors = de_tensors.to(device="cuda")
+                            src_de = de_tensors[:, :-1]
+                            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
-                # line1.set_xdata(range(1, len(train_losses) + 1))
-                # line1.set_ydata(train_losses)
-                # line2.set_xdata(range(1, len(val_losses) + 1))
-                # line2.set_ydata(val_losses)
-                # ax1.relim()
-                # ax1.autoscale_view()
+                            output = transformer(en_tensors, src_de)
+                            loss = criterion(
+                                output.contiguous().view(-1, vocab_tgt_size), tgt_de
+                            )
+                            total_loss += loss.item()
+                            testbar.update()
 
-                # line3.set_xdata(range(1, len(learning_rates) + 1))
-                # line3.set_ydata(learning_rates)
-                # ax2.relim()
-                # ax2.autoscale_view()
-
-                # # Redraw the figure
-                # fig.canvas.draw()
-                # fig.canvas.flush_events()
-
-        # plt.ioff()
-        # plt.show()
+                test_losses.append(total_loss / len(test_dataloader))
+                print()
+                print(f"Test Loss: [{total_loss=:.3f}] {test_losses[-1]:.3f}")
+                print(f"Perplexity: {np.exp(test_losses[-1]):.3f}")
 
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(
@@ -476,9 +383,9 @@ class CLI:
                     "vocab_tgt_size": vocab_tgt_size,
                     "pad_src_idx": pad_src_idx,
                     "pad_tgt_idx": pad_tgt_idx,
-                    "embedding_size": embedding_size,
-                    "query_key_size": query_key_size,
-                    "value_size": value_size,
+                    "embedding_dim": embedding_dim,
+                    "query_key_dim": query_key_dim,
+                    "value_dim": value_dim,
                     "num_heads": num_heads,
                     "ffn_hidden_dim": ffn_hidden_dim,
                     "ffn_activation": ffn_activation,
@@ -545,16 +452,16 @@ class CLI:
             config = json.load(f)
 
         # read model
-        transformer = Transformer(
+        transformer = EncoderDecoderTransformer(
             num_encoder_layers=config["num_encoder_layers"],
             num_decoder_layers=config["num_decoder_layers"],
             vocab_src_size=config["vocab_src_size"],
             vocab_tgt_size=config["vocab_tgt_size"],
             pad_src_idx=config["pad_src_idx"],
             pad_tgt_idx=config["pad_tgt_idx"],
-            embedding_size=config["embedding_size"],
-            query_key_size=config["query_key_size"],
-            value_size=config["value_size"],
+            embedding_dim=config["embedding_dim"],
+            query_key_dim=config["query_key_dim"],
+            value_dim=config["value_dim"],
             num_heads=config["num_heads"],
             ffn_hidden_dim=config["ffn_hidden_dim"],
             ffn_activation=config["ffn_activation"],
@@ -642,40 +549,9 @@ class CLI:
                 print(f"Generated token indices: {de_tokens}")
                 print()
 
-        # transformer.eval()
-        # with torch.no_grad():
-        #     for i, sentence in enumerate(input):
-        #         en_tensors = [sos_token_idx] + tokenizer_en.encode(sentence.lower()).ids + [eos_token_idx]
-        #         en_tensors = torch.tensor([en_tensors], dtype=torch.long).to(device="cuda")
-
-        #         de_tokens = [sos_token_idx]
-        #         encoded = transformer.encode(en_tensors)
-
-        #         for _ in range(config["max_length"] - 1):
-        #             de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(device="cuda")
-        #             logits = transformer.decode(en_tensors, de_tensors, encoded)
-
-        #             if top_k > 0:
-        #                 v, _ = torch.topk(logits[:, -1, :], top_k, dim=-1)
-        #                 logits[logits < v[:, -1].unsqueeze(0)] = -float("inf")
-
-        #             probs = logits.softmax(dim=2)
-        #             _, idx_next = torch.topk(probs, k=1, dim=2)
-        #             print(idx_next.shape)
-        #             pred_token = idx_next[0, -1, 0].item()
-        #             de_tokens.append(pred_token)
-
-        #             if pred_token == eos_token_idx:
-        #                 break
-
-        #         output = tokenizer_de.decode(de_tokens, skip_special_tokens=False)
-        #         print(f"Input: {sentence}")
-        #         print(f"Output: {output}")
-        #         print()
-
     def visualize_positional_encoding(
         self,
-        embedding_size: int = 64,
+        embedding_dim: int = 64,
         max_length: int = 64,
         *,
         save: bool = False,
@@ -684,7 +560,7 @@ class CLI:
         r"""Visualize positional encoding used in the paper.
 
         Args:
-            embedding_size:
+            embedding_dim:
                 The dimensionality of vector space embeddings (`d_model` in the paper)
             max_length:
                 Maximum sequence length of tokens
@@ -694,11 +570,11 @@ class CLI:
                 Path to file where plot is to be saved
         """
 
-        position_encoder = PositionalEncoding(embedding_size, max_length)
+        position_encoder = PositionalEncoding(embedding_dim, max_length)
         pe: np.ndarray = position_encoder.pe.detach().numpy()
 
         figsize = (
-            min(embedding_size // 8, 20),
+            min(embedding_dim // 8, 20),
             min(max_length // 8, 20),
         )
         plt.figure(figsize=figsize)
