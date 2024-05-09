@@ -10,6 +10,16 @@ class PositionwiseFeedForward(nn.Module):
     r"""Position-wise Feed-forward Network (section 3.3 in paper).
 
     Args:
+        in_out_dim (`int`):
+            The dimension of the input and output vectors.
+        hidden_dim (`int`):
+            The dimension of the hidden layer.
+        activation (`str`, optional):
+            The activation function to use. Defaults to `"relu"`.
+        use_bias_1 (`bool`, optional):
+            Whether to use bias in the first linear layer. Defaults to `True`.
+        use_bias_2 (`bool`, optional):
+            Whether to use bias in the second linear layer. Defaults to `True`.
     """
 
     def __init__(
