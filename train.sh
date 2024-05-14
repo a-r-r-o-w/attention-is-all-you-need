@@ -5,8 +5,6 @@ python3 main.py train \
   --num_decoder_layers=3 \
   --vocab_src_size=5000 \
   --vocab_tgt_size=5000 \
-  --pad_src_idx=-1 \
-  --pad_tgt_idx=-1 \
   --embedding_size=512 \
   --query_key_size=512 \
   --value_size=512 \
@@ -19,7 +17,7 @@ python3 main.py train \
   --weight_initialization_method="kaiming_uniform" \
   --learning_rate=1e-4 \
   --weight_decay=0.0001 \
-  --batch_size=32 \
+  --batch_size=2048 \
   --dataset_name="multi30k" \
   --epochs=20 \
   --seed=42 \
