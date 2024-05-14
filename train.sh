@@ -5,9 +5,9 @@ python3 main.py train \
   --num_decoder_layers=3 \
   --vocab_src_size=5000 \
   --vocab_tgt_size=5000 \
-  --embedding_size=512 \
-  --query_key_size=512 \
-  --value_size=512 \
+  --embedding_dim=512 \
+  --query_key_dim=512 \
+  --value_dim=512 \
   --num_heads=8 \
   --ffn_hidden_dim=1024 \
   --ffn_activation="relu" \
