@@ -11,7 +11,7 @@ python3 main.py train \
   --query_key_size=512 \
   --value_size=512 \
   --num_heads=8 \
-  --ffn_hidden_dim=512 \
+  --ffn_hidden_dim=1024 \
   --ffn_activation="relu" \
   --use_pffn_bias \
   --dropout_rate=0.1 \
@@ -28,3 +28,4 @@ python3 main.py train \
   --experiment_name="transformer" \
   --checkpoint_steps=10000 \
   --gradient_accumulation_steps=1 \
+  --track_wandb

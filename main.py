@@ -1,13 +1,16 @@
-import os
 import json
+import os
+import random
 from typing import List, Optional, Union
 
+import dotenv
 import fire
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
@@ -23,9 +26,26 @@ from attention_is_all_you_need import (
 from utils import get_summary, initialize_weights, collate_fn
 
 
+dotenv.load_dotenv()
+
+WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+
+
 def _print_with_line(content: str, line_length: int = 80):
     print(content)
     print("-" * line_length)
+
+
+def seed_everything(seed: int, cuda_deterministic: bool = False):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    if cuda_deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 class CLI:
@@ -67,6 +87,7 @@ class CLI:
         experiment_name: str = "transformer",
         checkpoint_steps: int = 500,
         gradient_accumulation_steps: int = 1,
+        track_wandb: bool = False,
     ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
 
@@ -135,12 +156,26 @@ class CLI:
                 The number of steps after which to save the model checkpoint.
             gradient_accumulation_steps (int, defaults to *1*):
                 The number of steps to accumulate gradients before updating the model.
+            track_wandb (bool, defaults to *False*):
+                Whether to track the experiment with wandb.
         """
 
         config = {k: v for k, v in locals().items() if k != "self"}
 
-        torch.manual_seed(seed)
-        np.random.seed(seed)
+        if track_wandb and not WANDB_API_KEY:
+            raise ValueError("`WANDB_API_KEY` is not set in the environment variables")
+        if track_wandb:
+            wandb.login(key=WANDB_API_KEY)
+            run = wandb.init(
+                project="attention_is_all_you_need", name=experiment_name, config=config
+            )
+            print("Logged in to wandb")
+
+        def wandb_log(log_dict: dict) -> None:
+            if track_wandb:
+                wandb.log(log_dict)
+
+        seed_everything(seed)
 
         sos_token = "<sos>"
         eos_token = "<eos>"
@@ -294,6 +329,9 @@ class CLI:
 
         criterion = nn.CrossEntropyLoss(ignore_index=pad_tgt_idx)
 
+        if track_wandb:
+            wandb.watch(transformer, log="all", log_freq=1000)
+
         train_losses = []
         val_losses = []
         test_losses = []
@@ -361,6 +399,12 @@ class CLI:
                         )
 
                 train_losses.append(total_loss / len(train_dataloader))
+                wandb_log(
+                    {
+                        "train_loss": train_losses[-1],
+                        "train_perplexity": np.exp(train_losses[-1]),
+                    }
+                )
                 print()
                 print(f"Epoch: {epoch}")
                 print(f"Train Loss: [{total_loss=:.3f}] {train_losses[-1]:.3f}")
@@ -391,6 +435,12 @@ class CLI:
                                 valbar.update()
 
                     val_losses.append(total_loss / len(val_dataloader))
+                    wandb_log(
+                        {
+                            "val_loss": val_losses[-1],
+                            "val_perplexity": np.exp(val_losses[-1]),
+                        }
+                    )
                     print()
                     print(f"Validation Loss: [{total_loss=:.3f}] {val_losses[-1]:.3f}")
                     print(f"Perplexity: {np.exp(val_losses[-1]):.3f}")
@@ -428,9 +478,16 @@ class CLI:
                             testbar.update()
 
                 test_losses.append(total_loss / len(test_dataloader))
+                wandb_log(
+                    {
+                        "test_loss": test_losses[-1],
+                        "test_perplexity": np.exp(test_losses[-1]),
+                    }
+                )
                 print()
                 print(f"Test Loss: [{total_loss=:.3f}] {test_losses[-1]:.3f}")
                 print(f"Perplexity: {np.exp(test_losses[-1]):.3f}")
+                print()
 
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(config, f, indent=4)
