@@ -34,10 +34,8 @@ class EncoderBlock(nn.Module):
             this should have no effect because normalization should remove the effect of bias.
         use_final_linear_mha_bias (`bool`, optional):
             Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
-        use_ffn_bias_1 (`bool`, optional):
-            Whether to use bias in the first linear layer of position-wise feed-forward network. Defaults to `True`.
-        use_ffn_bias_2 (`bool`, optional):
-            Whether to use bias in the second linear layer of position-wise feed-forward network. Defaults to `True`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the position-wise feed-forward network. Defaults to `True`.
         dropout_rate (`float`, optional):
             The dropout rate. Defaults to `0.1`.
     """
@@ -54,8 +52,7 @@ class EncoderBlock(nn.Module):
         use_key_bias: bool = False,
         use_value_bias: bool = False,
         use_final_linear_mha_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -77,8 +74,7 @@ class EncoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
-            use_bias_1=use_ffn_bias_1,
-            use_bias_2=use_ffn_bias_2,
+            use_bias=use_pffn_bias,
         )
         self.dropout2 = nn.Dropout(dropout_rate)
         self.norm2 = nn.LayerNorm(embedding_dim)
@@ -130,10 +126,8 @@ class DecoderBlock(nn.Module):
             this should have no effect because normalization should remove the effect of bias.
         use_final_linear_mha_bias (`bool`, optional):
             Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
-        use_ffn_bias_1 (`bool`, optional):
-            Whether to use bias in the first linear layer of position-wise feed-forward network. Defaults to `True`.
-        use_ffn_bias_2 (`bool`, optional):
-            Whether to use bias in the second linear layer of position-wise feed-forward network. Defaults to `True`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the position-wise feed-forward network. Defaults to `True`.
         dropout_rate (`float`, optional):
             The dropout rate. Defaults to `0.1`.
     """
@@ -150,8 +144,7 @@ class DecoderBlock(nn.Module):
         use_key_bias: bool = False,
         use_value_bias: bool = False,
         use_final_linear_mha_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         dropout_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -186,8 +179,7 @@ class DecoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
-            use_bias_1=use_ffn_bias_1,
-            use_bias_2=use_ffn_bias_2,
+            use_bias=use_pffn_bias,
         )
         self.dropout3 = nn.Dropout(dropout_rate)
         self.norm3 = nn.LayerNorm(embedding_dim)

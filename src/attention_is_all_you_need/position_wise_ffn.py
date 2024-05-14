@@ -1,9 +1,19 @@
 import torch
 import torch.nn as nn
 
-from .utils import get_activation
-
 T = torch.FloatTensor
+
+
+def get_activation(name: str, **kwargs) -> nn.Module:
+    if name == "relu":
+        return nn.ReLU(**kwargs)
+    elif name == "gelu":
+        return nn.GELU(**kwargs)
+    elif name == "silu" or name == "swish":
+        return nn.SiLU(**kwargs)
+    elif name == "leaky_relu":
+        return nn.LeakyReLU(**kwargs)
+    raise ValueError(f"{name} is not a supported activation")
 
 
 class PositionwiseFeedForward(nn.Module):
@@ -16,10 +26,8 @@ class PositionwiseFeedForward(nn.Module):
             The dimension of the hidden layer.
         activation (`str`, optional):
             The activation function to use. Defaults to `"relu"`.
-        use_bias_1 (`bool`, optional):
-            Whether to use bias in the first linear layer. Defaults to `True`.
-        use_bias_2 (`bool`, optional):
-            Whether to use bias in the second linear layer. Defaults to `True`.
+        use_bias (`bool`, optional):
+            Whether to use bias in the linear layers. Defaults to `True`.
     """
 
     def __init__(
@@ -27,12 +35,11 @@ class PositionwiseFeedForward(nn.Module):
         in_out_dim: int,
         hidden_dim: int,
         activation: str = "relu",
-        use_bias_1: bool = True,
-        use_bias_2: bool = True,
+        use_bias: bool = True,
     ) -> None:
         super().__init__()
-        self.linear_1 = nn.Linear(in_out_dim, hidden_dim, bias=use_bias_1)
-        self.linear_2 = nn.Linear(hidden_dim, in_out_dim, bias=use_bias_2)
+        self.linear_1 = nn.Linear(in_out_dim, hidden_dim, bias=use_bias)
+        self.linear_2 = nn.Linear(hidden_dim, in_out_dim, bias=use_bias)
         self.activation = get_activation(activation)
 
     def forward(self, x: T) -> T:

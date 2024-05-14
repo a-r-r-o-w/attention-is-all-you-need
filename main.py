@@ -42,8 +42,6 @@ class CLI:
         num_decoder_layers: int = 6,
         vocab_src_size: int = 25000,
         vocab_tgt_size: int = 25000,
-        pad_src_idx: int = 24999,
-        pad_tgt_idx: int = 24999,
         embedding_dim: int = 512,  # `d_model` in paper
         query_key_dim: int = 64,  # `d_k` in paper
         value_dim: int = 64,  # `d_v` in paper
@@ -53,9 +51,8 @@ class CLI:
         use_query_bias: bool = False,
         use_key_bias: bool = False,
         use_value_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
         use_final_linear_bias: bool = False,
+        use_pffn_bias: bool = True,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
         weight_initialization_method: str = "kaiming_uniform",
@@ -74,9 +71,73 @@ class CLI:
         r"""Train the transformer model. You can configure various hyperparameters.
 
         Args:
-            num_layers:
-                Number of encoder/decoder layers to be used in the transformer.
+            num_encoder_layers (int, defaults to *6*):
+                Number of encoder layers to be used in the transformer.
+            num_decoder_layers (int, defaults to *6*):
+                Number of decoder layers to be used in the transformer.
+            vocab_src_size (int, defaults to *25000*):
+                Vocabulary size for source language after tokenizing with Byte-pair encoding.
+            vocab_tgt_size (int, defaults to *25000*):
+                Vocabulary size for target language after tokenizing with Byte-pair encoding.
+            pad_src_idx (int, defaults to *24999*):
+                Index of padding token for source language.
+            pad_tgt_idx (int, defaults to *24999*):
+                Index of padding token for target language.
+            embedding_dim (int, defaults to *512*):
+                The dimension of the embedding space (d_model in paper).
+            query_key_dim (int, defaults to *64*):
+                The dimension of the query and key vectors (d_k in paper).
+            value_dim (int, defaults to *64*):
+                The dimension of the value vectors (d_v in paper).
+            num_heads (int, defaults to *8*):
+                The number of heads (h in paper).
+            ffn_hidden_dim (int, defaults to *2048*):
+                The dimension of the hidden layer in the position-wise feed-forward network.
+            ffn_activation (str, defaults to *relu*):
+                The activation function to use in the position-wise feed-forward network. Can be one of
+                "relu", "gelu", "silu"/"swish", "leaky_relu".
+            use_query_bias (bool, defaults to *False*):
+                Whether to use bias in the query linear layer.
+            use_key_bias (bool, defaults to *False*):
+                Whether to use bias in the key linear layer.
+            use_value_bias (bool, defaults to *False*):
+                Whether to use bias in the value linear layer.
+            use_final_linear_bias (bool, defaults to *False*):
+                Whether to use bias in the final linear layer of multi-head attention.
+            use_pffn_bias (bool, defaults to *True*):
+                Whether to use bias in the position-wise feed-forward network.
+            dropout_rate (float, defaults to *0.1*):
+                The dropout rate.
+            max_length (int, defaults to *10000*):
+                The maximum length of any given sequence.
+            weight_initialization_method (str, defaults to *kaiming_uniform*):
+                The weight initialization method to use. Can be one of "kaiming_uniform", "kaiming_normal",
+                "xavier_uniform", "xavier_normal", "uniform", or "normal".
+            learning_rate (float, defaults to *1e-5*):
+                The learning rate for the optimizer.
+            weight_decay (float, defaults to *1e-4*):
+                The weight decay for the optimizer.
+            batch_size (int, defaults to *32*):
+                The batch size for training.
+            dataset_name (str, defaults to *"multi30k"*):
+                The dataset to use for training. Currently, only "multi30k" is supported.
+            epochs (int, defaults to *10*):
+                The number of epochs to train the model.
+            seed (int, defaults to *42*):
+                The random seed to use for reproducibility.
+            validation_epochs (int, defaults to *1*):
+                The number of epochs after which to run validation.
+            checkpoint_path (str, defaults to *"checkpoints"*):
+                The path where to save the model checkpoints.
+            experiment_name (str, defaults to *"transformer"*):
+                The name of the experiment.
+            checkpoint_steps (int, defaults to *500*):
+                The number of steps after which to save the model checkpoint.
+            gradient_accumulation_steps (int, defaults to *1*):
+                The number of steps to accumulate gradients before updating the model.
         """
+
+        config = {k: v for k, v in locals().items() if k != "self"}
 
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -162,10 +223,8 @@ class CLI:
                 data_tensors.append(item)
             data[split] = data_tensors
 
-        if pad_src_idx == -1:
-            pad_src_idx = tokenizer_en.token_to_id(pad_token)
-        if pad_tgt_idx == -1:
-            pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
+        pad_src_idx = tokenizer_en.token_to_id(pad_token)
+        pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
 
         def collate_helper(batch):
             return collate_fn(
@@ -210,8 +269,7 @@ class CLI:
             use_query_bias=use_query_bias,
             use_key_bias=use_key_bias,
             use_value_bias=use_value_bias,
-            use_ffn_bias_1=use_ffn_bias_1,
-            use_ffn_bias_2=use_ffn_bias_2,
+            use_pffn_bias=use_pffn_bias,
             use_final_linear_bias=use_final_linear_bias,
             dropout_rate=dropout_rate,
             max_length=max_length,
@@ -375,44 +433,7 @@ class CLI:
                 print(f"Perplexity: {np.exp(test_losses[-1]):.3f}")
 
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
-            json.dump(
-                {
-                    "num_encoder_layers": num_encoder_layers,
-                    "num_decoder_layers": num_decoder_layers,
-                    "vocab_src_size": vocab_src_size,
-                    "vocab_tgt_size": vocab_tgt_size,
-                    "pad_src_idx": pad_src_idx,
-                    "pad_tgt_idx": pad_tgt_idx,
-                    "embedding_dim": embedding_dim,
-                    "query_key_dim": query_key_dim,
-                    "value_dim": value_dim,
-                    "num_heads": num_heads,
-                    "ffn_hidden_dim": ffn_hidden_dim,
-                    "ffn_activation": ffn_activation,
-                    "use_query_bias": use_query_bias,
-                    "use_key_bias": use_key_bias,
-                    "use_value_bias": use_value_bias,
-                    "use_ffn_bias_1": use_ffn_bias_1,
-                    "use_ffn_bias_2": use_ffn_bias_2,
-                    "use_final_linear_bias": use_final_linear_bias,
-                    "dropout_rate": dropout_rate,
-                    "max_length": max_length,
-                    "weight_initialization_method": weight_initialization_method,
-                    "learning_rate": learning_rate,
-                    "weight_decay": weight_decay,
-                    "batch_size": batch_size,
-                    "dataset_name": dataset_name,
-                    "epochs": epochs,
-                    "seed": seed,
-                    "validation_epochs": validation_epochs,
-                    "checkpoint_path": checkpoint_path,
-                    "experiment_name": experiment_name,
-                    "checkpoint_steps": checkpoint_steps,
-                    "gradient_accumulation_steps": gradient_accumulation_steps,
-                },
-                f,
-                indent=4,
-            )
+            json.dump(config, f, indent=4)
 
         with open(os.path.join(experiment_dir, f"train.json"), "w") as f:
             json.dump(
@@ -444,6 +465,26 @@ class CLI:
         sample: bool = False,
         max_length: int = 100,
     ) -> None:
+        r"""Run inference on the trained model.
+
+        Args:
+            checkpoint_path (str):
+                The path where the model checkpoints are saved.
+            experiment_name (str):
+                The name of the experiment.
+            input (Union[str, List[str]]):
+                The input sentence to generate translation for.
+            top_k (int, defaults to *-1*):
+                The number of top-k tokens to sample from.
+            top_p (float, defaults to *-1.0*):
+                The nucleus sampling threshold.
+            temperature (float, defaults to *1.0*):
+                The temperature for sampling.
+            sample (bool, defaults to *False*):
+                Whether to sample from the distribution or take the argmax.
+            max_length (int, defaults to *100*):
+                The maximum length of the generated sequence.
+        """
         if isinstance(input, str):
             input = [input]
 
@@ -468,9 +509,8 @@ class CLI:
             use_query_bias=config["use_query_bias"],
             use_key_bias=config["use_key_bias"],
             use_value_bias=config["use_value_bias"],
-            use_ffn_bias_1=config["use_ffn_bias_1"],
-            use_ffn_bias_2=config["use_ffn_bias_2"],
             use_final_linear_bias=config["use_final_linear_bias"],
+            use_pffn_bias=config["use_pffn_bias"],
             dropout_rate=config["dropout_rate"],
             max_length=max_length,
         ).to(device="cuda")

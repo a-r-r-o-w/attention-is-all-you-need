@@ -52,10 +52,8 @@ class EncoderDecoderTransformer(nn.Module):
             this should have no effect because normalization should remove the effect of bias.
         use_final_linear_mha_bias (`bool`, optional):
             Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
-        use_ffn_bias_1 (`bool`, optional):
-            Whether to use bias in the first linear layer of position-wise feed-forward network. Defaults to `True`.
-        use_ffn_bias_2 (`bool`, optional):
-            Whether to use bias in the second linear layer of position-wise feed-forward network. Defaults to `True`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the position-wise feed-forward network. Defaults to `True`.
         dropout_rate (`float`, optional):
             The dropout rate. Defaults to `0.1`.
         max_length (`int`, optional):
@@ -79,8 +77,7 @@ class EncoderDecoderTransformer(nn.Module):
         use_query_bias: bool = False,
         use_key_bias: bool = False,
         use_value_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         use_final_linear_bias: bool = False,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
@@ -114,8 +111,8 @@ class EncoderDecoderTransformer(nn.Module):
                     use_query_bias=use_query_bias,
                     use_key_bias=use_key_bias,
                     use_value_bias=use_value_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_final_linear_mha_bias=use_final_linear_bias,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                 )
                 for _ in range(num_encoder_layers)
@@ -135,17 +132,14 @@ class EncoderDecoderTransformer(nn.Module):
                     use_key_bias=use_key_bias,
                     use_value_bias=use_value_bias,
                     use_final_linear_mha_bias=use_final_linear_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                 )
                 for _ in range(num_decoder_layers)
             ]
         )
 
-        self.linear = nn.Linear(
-            embedding_dim, vocab_tgt_size, bias=use_final_linear_bias
-        )
+        self.linear = nn.Linear(embedding_dim, vocab_tgt_size)
 
     def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
