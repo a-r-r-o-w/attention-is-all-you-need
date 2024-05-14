@@ -95,7 +95,7 @@ class CLI:
                 The dimension of the hidden layer in the position-wise feed-forward network.
             ffn_activation (str, defaults to *relu*):
                 The activation function to use in the position-wise feed-forward network. Can be one of
-                "relu", "gelu", "silu"/"swish", "leaky_relu".
+                "relu", "gelu", "silu"/"swish", "leaky_relu", "sigmoid", "glu", "reglu", "geglu", or "swiglu".
             use_query_bias (bool, defaults to *False*):
                 Whether to use bias in the query linear layer.
             use_key_bias (bool, defaults to *False*):

@@ -74,6 +74,7 @@ class EncoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
+            dropout_rate=dropout_rate,
             use_bias=use_pffn_bias,
         )
         self.dropout2 = nn.Dropout(dropout_rate)
@@ -179,6 +180,7 @@ class DecoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
+            dropout_rate=dropout_rate,
             use_bias=use_pffn_bias,
         )
         self.dropout3 = nn.Dropout(dropout_rate)
