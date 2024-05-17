@@ -17,7 +17,7 @@ python3 main.py train \
   --weight_initialization_method="kaiming_uniform" \
   --learning_rate=1e-4 \
   --weight_decay=0.0001 \
-  --batch_size=2048 \
+  --batch_size=32 \
   --dataset_name="multi30k" \
   --epochs=20 \
   --seed=42 \
@@ -26,4 +26,5 @@ python3 main.py train \
   --experiment_name="transformer" \
   --checkpoint_steps=10000 \
   --gradient_accumulation_steps=1 \
-  --track_wandb
+  --device="cuda:2" \
+  # --track_wandb

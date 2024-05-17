@@ -23,7 +23,7 @@ from attention_is_all_you_need import (
     PositionalEncoding,
     LRScheduler,
 )
-from utils import get_summary, initialize_weights, collate_fn
+from utils import get_summary, initialize_weights, collate_fn, bleu_score
 
 
 dotenv.load_dotenv()
@@ -87,6 +87,7 @@ class CLI:
         experiment_name: str = "transformer",
         checkpoint_steps: int = 500,
         gradient_accumulation_steps: int = 1,
+        device: str = "cuda:0",
         track_wandb: bool = False,
     ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
@@ -308,7 +309,7 @@ class CLI:
             use_final_linear_bias=use_final_linear_bias,
             dropout_rate=dropout_rate,
             max_length=max_length,
-        ).to(device="cuda")
+        ).to(device=device)
 
         initialize_weights(transformer, weight_initialization_method)
 
@@ -332,46 +333,42 @@ class CLI:
         if track_wandb:
             wandb.watch(transformer, log="all", log_freq=1000)
 
-        train_losses = []
-        val_losses = []
-        test_losses = []
-        learning_rates = []
+        train_losses, val_losses, test_losses = [], [], []
+        train_bleu_scores, val_bleu_scores, test_bleu_scores = [], [], []
         step = 0
         total_steps = len(train_dataloader) * epochs
 
-        # plt.ion()
-        # fig, (ax1, ax2) = plt.subplots(2, 1)
-        # ax1.set_xlabel("Epoch")
-        # ax1.set_ylabel("Loss")
-        # ax1.set_title("Training and Validation Loss")
-        # (line1,) = ax1.plot([], [], "r-", label="Train loss")  # line for train loss
-        # (line2,) = ax1.plot([], [], "g-", label="Validation loss")  # line for validation loss
-        # ax1.legend()
+        def perform_forward(en_tensors, de_tensors):
+            en_tensors = en_tensors.to(device=device)
+            de_tensors = de_tensors.to(device=device)
+            src_de = de_tensors[:, :-1]
+            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
-        # ax2.set_xlabel("Step")
-        # ax2.set_ylabel("Learning Rate")
-        # ax2.set_title("Learning Rate")
-        # (line3,) = ax2.plot([], [], "b-")  # line for learning rate
+            optimizer.zero_grad()
+            output = transformer(en_tensors, src_de)
+            loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
+
+            return output, loss
 
         with tqdm(total=total_steps, desc="Training") as train_bar:
             for epoch in range(1, epochs + 1):
                 total_loss = 0.0
+                bleu = 0.0
 
                 transformer.train()
                 for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
-                    en_tensors = en_tensors.to(device="cuda")
-                    de_tensors = de_tensors.to(device="cuda")
-                    src_de = de_tensors[:, :-1]
-                    tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                    optimizer.zero_grad()
-                    output = transformer(en_tensors, src_de)
-                    loss = criterion(
-                        output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                    )
-
+                    output, loss = perform_forward(en_tensors, de_tensors)
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
+
+                    output_tokens = tokenizer_de.decode_batch(
+                        output.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
+                    )
+                    tgt_tokens = tokenizer_de.decode_batch(
+                        de_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
+                    )
+                    tgt_tokens = [[t] for t in tgt_tokens]
+                    bleu += bleu_score(output_tokens, tgt_tokens)
 
                     if (
                         step + 1 == total_steps
@@ -384,8 +381,6 @@ class CLI:
                         optimizer.zero_grad()
 
                     total_loss += loss.item()
-                    # learning_rates.append(lr_scheduler.get_lr())
-                    # lr_scheduler.step()
 
                     step += 1
                     train_bar.update()
@@ -399,21 +394,26 @@ class CLI:
                         )
 
                 train_losses.append(total_loss / len(train_dataloader))
+                train_bleu_scores.append(bleu / len(train_dataloader))
                 wandb_log(
                     {
                         "train_loss": train_losses[-1],
                         "train_perplexity": np.exp(train_losses[-1]),
+                        "train_bleu": train_bleu_scores[-1],
                     }
                 )
                 print()
                 print(f"Epoch: {epoch}")
                 print(f"Train Loss: [{total_loss=:.3f}] {train_losses[-1]:.3f}")
                 print(f"Perplexity: {np.exp(train_losses[-1]):.3f}")
+                print(f"BLEU Score: {train_bleu_scores[-1] * 100:.3f}")
                 print()
 
                 # val set
                 if (epoch - 1) % validation_epochs == 0:
                     total_loss = 0.0
+                    bleu = 0.0
+
                     transformer.eval()
                     with torch.no_grad():
                         with tqdm(
@@ -422,28 +422,34 @@ class CLI:
                             for i, (en_tensors, de_tensors) in enumerate(
                                 val_dataloader
                             ):
-                                en_tensors = en_tensors.to(device="cuda")
-                                de_tensors = de_tensors.to(device="cuda")
-                                src_de = de_tensors[:, :-1]
-                                tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                                output = transformer(en_tensors, src_de)
-                                loss = criterion(
-                                    output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                                )
+                                output, loss = perform_forward(en_tensors, de_tensors)
                                 total_loss += loss.item()
+                                output_tokens = tokenizer_de.decode_batch(
+                                    output.argmax(dim=-1).cpu().numpy(),
+                                    skip_special_tokens=True,
+                                )
+                                tgt_tokens = tokenizer_de.decode_batch(
+                                    de_tensors[:, 1:].cpu().numpy(),
+                                    skip_special_tokens=True,
+                                )
+                                tgt_tokens = [[t] for t in tgt_tokens]
+                                bleu += bleu_score(output_tokens, tgt_tokens)
+
                                 valbar.update()
 
                     val_losses.append(total_loss / len(val_dataloader))
+                    val_bleu_scores.append(bleu / len(val_dataloader))
                     wandb_log(
                         {
                             "val_loss": val_losses[-1],
                             "val_perplexity": np.exp(val_losses[-1]),
+                            "val_bleu": val_bleu_scores[-1],
                         }
                     )
                     print()
                     print(f"Validation Loss: [{total_loss=:.3f}] {val_losses[-1]:.3f}")
                     print(f"Perplexity: {np.exp(val_losses[-1]):.3f}")
+                    print(f"BLEU Score: {val_bleu_scores[-1] * 100:.3f}")
                     print()
 
                     print("Running inference on validation set")
@@ -461,23 +467,30 @@ class CLI:
                         print()
 
                 total_loss = 0.0
+                bleu = 0.0
+
                 transformer.eval()
                 with torch.no_grad():
                     with tqdm(total=len(test_dataloader), desc="Testing") as testbar:
                         for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                            en_tensors = en_tensors.to(device="cuda")
-                            de_tensors = de_tensors.to(device="cuda")
-                            src_de = de_tensors[:, :-1]
-                            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                            output = transformer(en_tensors, src_de)
-                            loss = criterion(
-                                output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                            )
+                            output, loss = perform_forward(en_tensors, de_tensors)
                             total_loss += loss.item()
+
+                            output_tokens = tokenizer_de.decode_batch(
+                                output.argmax(dim=-1).cpu().numpy(),
+                                skip_special_tokens=True,
+                            )
+                            tgt_tokens = tokenizer_de.decode_batch(
+                                de_tensors[:, 1:].cpu().numpy(),
+                                skip_special_tokens=True,
+                            )
+                            tgt_tokens = [[t] for t in tgt_tokens]
+                            bleu += bleu_score(output_tokens, tgt_tokens)
+
                             testbar.update()
 
                 test_losses.append(total_loss / len(test_dataloader))
+                test_bleu_scores.append(bleu / len(test_dataloader))
                 wandb_log(
                     {
                         "test_loss": test_losses[-1],
@@ -487,6 +500,7 @@ class CLI:
                 print()
                 print(f"Test Loss: [{total_loss=:.3f}] {test_losses[-1]:.3f}")
                 print(f"Perplexity: {np.exp(test_losses[-1]):.3f}")
+                print(f"BLEU Score: {test_bleu_scores[-1] * 100:.3f}")
                 print()
 
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
@@ -497,7 +511,10 @@ class CLI:
                 {
                     "train_losses": train_losses,
                     "val_losses": val_losses,
-                    "learning_rates": learning_rates,
+                    "test_losses": test_losses,
+                    "train_bleu": train_bleu_scores,
+                    "val_bleu": val_bleu_scores,
+                    "test_bleu": test_bleu_scores,
                 },
                 f,
                 indent=4,
@@ -570,7 +587,7 @@ class CLI:
             use_pffn_bias=config["use_pffn_bias"],
             dropout_rate=config["dropout_rate"],
             max_length=max_length,
-        ).to(device="cuda")
+        ).to(device=device)
 
         transformer.load_state_dict(
             torch.load(os.path.join(experiment_dir, f"{experiment_name}_final.pth")),
@@ -596,7 +613,7 @@ class CLI:
                     + [eos_token_idx]
                 )
                 en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(
-                    device="cuda"
+                    device=device
                 )
 
                 de_tokens = [sos_token_idx]
@@ -604,7 +621,7 @@ class CLI:
 
                 for _ in range(max_length - 1):
                     de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(
-                        device="cuda"
+                        device=device
                     )
                     logits = transformer.decode(de_tensors, memory)
                     logits /= temperature
