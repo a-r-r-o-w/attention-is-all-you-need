@@ -62,10 +62,10 @@ class CLI:
         num_decoder_layers: int = 6,
         vocab_src_size: int = 25000,
         vocab_tgt_size: int = 25000,
-        embedding_dim: int = 512,  # `d_model` in paper
-        query_key_dim: int = 64,  # `d_k` in paper
-        value_dim: int = 64,  # `d_v` in paper
-        num_heads: int = 8,  # `h` in paper
+        embedding_dim: int = 512,
+        query_key_dim: int = 512,
+        value_dim: int = 512,
+        num_heads: int = 8,
         ffn_hidden_dim: int = 2048,
         ffn_activation: str = "relu",
         use_query_bias: bool = False,
@@ -165,7 +165,7 @@ class CLI:
         if track_wandb and not WANDB_API_KEY:
             raise ValueError("`WANDB_API_KEY` is not set in the environment variables")
         if track_wandb:
-            wandb.login(key=WANDB_API_KEY)
+            wandb.login(key=WANDB_API_KEY, relogin=True)
             run = wandb.init(
                 project="attention_is_all_you_need", name=experiment_name, config=config
             )
