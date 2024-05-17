@@ -50,16 +50,16 @@ class MultiHeadAttention(nn.Module):
         self.query_key_dim = query_key_dim
         self.value_dim = value_dim
         self.num_heads = num_heads
-        self.query_key_head_per_dim = query_key_dim // num_heads
-        self.value_head_per_dim = value_dim // num_heads
+        self.query_key_dim_per_head = query_key_dim // num_heads
+        self.value_dim_per_head = value_dim // num_heads
 
-        if self.query_key_head_per_dim * num_heads != query_key_dim:
+        if self.query_key_dim_per_head * num_heads != query_key_dim:
             raise ValueError(
-                f"`{self.query_key_head_per_dim=}` must be divisible by `{num_heads=}`"
+                f"`{self.query_key_dim_per_head=}` must be divisible by `{num_heads=}`"
             )
-        if self.value_head_per_dim * num_heads != value_dim:
+        if self.value_dim_per_head * num_heads != value_dim:
             raise ValueError(
-                f"`{self.value_head_per_dim=}` must be divisible by `{num_heads=}`"
+                f"`{self.value_dim_per_head=}` must be divisible by `{num_heads=}`"
             )
 
         self.linear_query = nn.Linear(
@@ -72,7 +72,9 @@ class MultiHeadAttention(nn.Module):
             self.embedding_dim, self.value_dim, bias=use_value_bias
         )
 
-        self.scaled_dot_product_attn = ScaledDotProductAttention(query_key_dim)
+        self.scaled_dot_product_attn = ScaledDotProductAttention(
+            self.query_key_dim_per_head
+        )
 
         self.linear_final = nn.Linear(
             self.value_dim, self.embedding_dim, bias=use_final_linear_mha_bias
@@ -86,9 +88,9 @@ class MultiHeadAttention(nn.Module):
 
         # 2. Scaled Dot Product Attention
         batch_size, seq_length, _ = query.shape
-        query = query.view(batch_size, -1, self.num_heads, self.query_key_head_per_dim)
-        key = key.view(batch_size, -1, self.num_heads, self.query_key_head_per_dim)
-        value = value.view(batch_size, -1, self.num_heads, self.value_head_per_dim)
+        query = query.view(batch_size, -1, self.num_heads, self.query_key_dim_per_head)
+        key = key.view(batch_size, -1, self.num_heads, self.query_key_dim_per_head)
+        value = value.view(batch_size, -1, self.num_heads, self.value_dim_per_head)
 
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
