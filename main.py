@@ -1,7 +1,7 @@
 import json
 import os
 import random
-from typing import List, Optional, Union
+from typing import List, Tuple, Union
 
 import dotenv
 import fire
@@ -25,9 +25,9 @@ from attention_is_all_you_need import (
 )
 from utils import get_summary, initialize_weights, collate_fn, bleu_score
 
+T = torch.Tensor
 
 dotenv.load_dotenv()
-
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")
 
 
@@ -60,8 +60,8 @@ class CLI:
         self,
         num_encoder_layers: int = 6,
         num_decoder_layers: int = 6,
-        vocab_src_size: int = 25000,
-        vocab_tgt_size: int = 25000,
+        src_vocab_size: int = 25000,
+        tgt_vocab_size: int = 25000,
         embedding_dim: int = 512,
         query_key_dim: int = 512,
         value_dim: int = 512,
@@ -97,9 +97,9 @@ class CLI:
                 Number of encoder layers to be used in the transformer.
             num_decoder_layers (int, defaults to *6*):
                 Number of decoder layers to be used in the transformer.
-            vocab_src_size (int, defaults to *25000*):
+            src_vocab_size (int, defaults to *25000*):
                 Vocabulary size for source language after tokenizing with Byte-pair encoding.
-            vocab_tgt_size (int, defaults to *25000*):
+            tgt_vocab_size (int, defaults to *25000*):
                 Vocabulary size for target language after tokenizing with Byte-pair encoding.
             pad_src_idx (int, defaults to *24999*):
                 Index of padding token for source language.
@@ -225,12 +225,12 @@ class CLI:
 
                 trainer_en = BpeTrainer(
                     special_tokens=[sos_token, eos_token, unk_token, pad_token],
-                    vocab_size=vocab_src_size,
+                    vocab_size=src_vocab_size,
                     min_frequency=2,
                 )
                 trainer_de = BpeTrainer(
                     special_tokens=[sos_token, eos_token, unk_token, pad_token],
-                    vocab_size=vocab_tgt_size,
+                    vocab_size=tgt_vocab_size,
                     min_frequency=2,
                 )
 
@@ -292,8 +292,8 @@ class CLI:
         transformer = EncoderDecoderTransformer(
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
-            vocab_src_size=vocab_src_size,
-            vocab_tgt_size=vocab_tgt_size,
+            src_vocab_size=src_vocab_size,
+            tgt_vocab_size=tgt_vocab_size,
             pad_src_idx=pad_src_idx,
             pad_tgt_idx=pad_tgt_idx,
             embedding_dim=embedding_dim,
@@ -338,7 +338,7 @@ class CLI:
         step = 0
         total_steps = len(train_dataloader) * epochs
 
-        def perform_forward(en_tensors, de_tensors):
+        def perform_forward(en_tensors, de_tensors) -> Tuple[T, T]:
             en_tensors = en_tensors.to(device=device)
             de_tensors = de_tensors.to(device=device)
             src_de = de_tensors[:, :-1]
@@ -346,7 +346,7 @@ class CLI:
 
             optimizer.zero_grad()
             output = transformer(en_tensors, src_de)
-            loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
+            loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_de)
 
             return output, loss
 
@@ -503,6 +503,10 @@ class CLI:
                 print(f"BLEU Score: {test_bleu_scores[-1] * 100:.3f}")
                 print()
 
+        config.update({
+            "pad_src_idx": pad_src_idx,
+            "pad_tgt_idx": pad_tgt_idx,
+        })
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(config, f, indent=4)
 
@@ -538,6 +542,7 @@ class CLI:
         temperature: float = 1.0,
         sample: bool = False,
         max_length: int = 100,
+        device: str = "cuda:0",
     ) -> None:
         r"""Run inference on the trained model.
 
@@ -570,8 +575,8 @@ class CLI:
         transformer = EncoderDecoderTransformer(
             num_encoder_layers=config["num_encoder_layers"],
             num_decoder_layers=config["num_decoder_layers"],
-            vocab_src_size=config["vocab_src_size"],
-            vocab_tgt_size=config["vocab_tgt_size"],
+            src_vocab_size=config["src_vocab_size"],
+            tgt_vocab_size=config["tgt_vocab_size"],
             pad_src_idx=config["pad_src_idx"],
             pad_tgt_idx=config["pad_tgt_idx"],
             embedding_dim=config["embedding_dim"],

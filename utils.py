@@ -81,7 +81,7 @@ def get_ngrams(sentence: List[str], n: int) -> Dict[Tuple[str], int]:
     return ngram_counts
 
 
-def bleu_score(
+def _bleu_score(
     translation: Union[str, List[str]],
     references: Union[List[str], List[List[str]]],
     n_gram: int = 4,
@@ -147,3 +147,16 @@ def bleu_score(
     )
 
     return brevity_penalty * geometric_mean
+
+
+def bleu_score(
+    translation: Union[str, List[str]],
+    references: Union[List[str], List[List[str]]],
+    n_gram: int = 4,
+) -> float:
+    try:
+        score = _bleu_score(translation, references, n_gram)
+    except Exception as e:
+        print(f"Exception occured while calculating bleu score: {e}")
+        score = 0
+    return score

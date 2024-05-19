@@ -23,9 +23,9 @@ class EncoderDecoderTransformer(nn.Module):
             The number of encoder layers.
         num_decoder_layers (`int`):
             The number of decoder layers.
-        vocab_src_size (`int`):
+        src_vocab_size (`int`):
             The size of the source vocabulary.
-        vocab_tgt_size (`int`):
+        tgt_vocab_size (`int`):
             The size of the target vocabulary.
         pad_src_idx (`int`):
             The index of the padding token in the source vocabulary.
@@ -64,8 +64,8 @@ class EncoderDecoderTransformer(nn.Module):
         self,
         num_encoder_layers: int,
         num_decoder_layers: int,
-        vocab_src_size: int,
-        vocab_tgt_size: int,
+        src_vocab_size: int,
+        tgt_vocab_size: int,
         pad_src_idx: int,
         pad_tgt_idx: int,
         embedding_dim: int,  # `d_model` in paper
@@ -92,8 +92,8 @@ class EncoderDecoderTransformer(nn.Module):
             max_length=max_length,
         )
 
-        self.src_emb = nn.Embedding(vocab_src_size, embedding_dim)
-        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_dim)
+        self.src_emb = nn.Embedding(src_vocab_size, embedding_dim)
+        self.tgt_emb = nn.Embedding(tgt_vocab_size, embedding_dim)
         self.scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
 
         self.src_dropout = nn.Dropout(dropout_rate)
@@ -139,7 +139,7 @@ class EncoderDecoderTransformer(nn.Module):
             ]
         )
 
-        self.linear = nn.Linear(embedding_dim, vocab_tgt_size)
+        self.linear = nn.Linear(embedding_dim, tgt_vocab_size)
 
     def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
