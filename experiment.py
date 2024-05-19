@@ -89,8 +89,8 @@ def experiment_ffn_hidden_dim(config: Dict[str, Any]) -> None:
 basic_config = {
     "num_encoder_layers": 3,
     "num_decoder_layers": 3,
-    "vocab_src_size": 5000,
-    "vocab_tgt_size": 5000,
+    "src_vocab_size": 5000,
+    "tgt_vocab_size": 5000,
     "embedding_dim": 512,
     "query_key_dim": 512,
     "value_dim": 512,
@@ -112,13 +112,13 @@ basic_config = {
     "experiment_name": "transformer",
     "checkpoint_steps": 10000,
     "gradient_accumulation_steps": 1,
-    "device": "cuda:2",
+    "device": "cuda:0",
     "track_wandb": True,
 }
 
 # experiment_batch_size(copy.deepcopy(basic_config))
 # experiment_activation(copy.deepcopy(basic_config))
 # experiment_learning_rate(copy.deepcopy(basic_config))
-experiment_num_heads(copy.deepcopy(basic_config))
+# experiment_num_heads(copy.deepcopy(basic_config))
 # experiment_num_encoder_decoder_layers(copy.deepcopy(basic_config))
 # experiment_ffn_hidden_dim(copy.deepcopy(basic_config))
