@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 T = torch.FloatTensor
 
 
@@ -57,11 +58,7 @@ class PositionwiseFeedForward(nn.Module):
 
         self.in_proj = nn.Linear(in_out_dim, hidden_dim, bias=use_bias)
         self.out_proj = nn.Linear(hidden_dim, in_out_dim, bias=use_bias)
-        self.gates = (
-            nn.Linear(in_out_dim, hidden_dim, bias=use_bias)
-            if _is_glu_activation(activation)
-            else None
-        )
+        self.gates = nn.Linear(in_out_dim, hidden_dim, bias=use_bias) if _is_glu_activation(activation) else None
 
         self.dropout = nn.Dropout(dropout_rate)
         self.act = get_activation(activation)

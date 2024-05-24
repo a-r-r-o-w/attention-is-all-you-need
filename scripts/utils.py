@@ -6,12 +6,8 @@ import torch.nn as nn
 
 
 def get_summary(module: nn.Module):
-    trainable_parameters = sum(
-        [p.numel() for p in module.parameters() if p.requires_grad]
-    )
-    untrainable_parameters = sum(
-        [p.numel() for p in module.parameters() if not p.requires_grad]
-    )
+    trainable_parameters = sum([p.numel() for p in module.parameters() if p.requires_grad])
+    untrainable_parameters = sum([p.numel() for p in module.parameters() if not p.requires_grad])
 
     dtype = next(module.parameters()).dtype
     size = 2 if dtype == torch.float16 else 4
@@ -45,12 +41,8 @@ def initialize_weights(module: nn.Module, method: str, **kwargs) -> None:
     module.apply(init)
 
 
-def pad_sequence(
-    sequences: List[torch.Tensor], padding_value: int, max_length: int
-) -> torch.Tensor:
-    padded_sequences = torch.full(
-        (len(sequences), max_length), padding_value, dtype=torch.long
-    )
+def pad_sequence(sequences: List[torch.Tensor], padding_value: int, max_length: int) -> torch.Tensor:
+    padded_sequences = torch.full((len(sequences), max_length), padding_value, dtype=torch.long)
     for i, sequence in enumerate(sequences):
         padded_sequences[i, : sequence.size(0)] = sequence
     return padded_sequences
@@ -58,18 +50,14 @@ def pad_sequence(
 
 def collate_fn(
     batch: List[Tuple[torch.Tensor, torch.Tensor]],
-    en_pad_token_id: int,
-    de_pad_token_id: int,
+    src_pad_token_id: int,
+    tgt_pad_token_id: int,
     max_length: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    en_tensors, de_tensors = zip(*batch)
-    en_tensors = pad_sequence(
-        en_tensors, padding_value=en_pad_token_id, max_length=max_length
-    )
-    de_tensors = pad_sequence(
-        de_tensors, padding_value=de_pad_token_id, max_length=max_length
-    )
-    return en_tensors, de_tensors
+    src_tensors, tgt_tensors = zip(*batch)
+    src_tensors = pad_sequence(src_tensors, padding_value=src_pad_token_id, max_length=max_length)
+    tgt_tensors = pad_sequence(tgt_tensors, padding_value=tgt_pad_token_id, max_length=max_length)
+    return src_tensors, tgt_tensors
 
 
 def get_ngrams(sentence: List[str], n: int) -> Dict[Tuple[str], int]:
@@ -129,7 +117,6 @@ def _bleu_score(
                 possible_matches_by_order[i] += len_translation - i
 
     if min(possible_matches_by_order) == 0:
-        print(translation, references)
         raise ValueError("Input too small to find n-gram matches")
 
     weights = [1 / n_gram] * n_gram
@@ -157,6 +144,6 @@ def bleu_score(
     try:
         score = _bleu_score(translation, references, n_gram)
     except Exception as e:
-        print(f"Exception occured while calculating bleu score: {e}")
-        score = 0
+        print(f"Exception: {e}")
+        score = 0.0
     return score

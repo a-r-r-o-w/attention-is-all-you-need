@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from .scaled_dot_product_attention import ScaledDotProductAttention
 
+
 T = torch.FloatTensor
 
 
@@ -54,31 +55,16 @@ class MultiHeadAttention(nn.Module):
         self.value_dim_per_head = value_dim // num_heads
 
         if self.query_key_dim_per_head * num_heads != query_key_dim:
-            raise ValueError(
-                f"`{self.query_key_dim_per_head=}` must be divisible by `{num_heads=}`"
-            )
+            raise ValueError(f"`{self.query_key_dim_per_head=}` must be divisible by `{num_heads=}`")
         if self.value_dim_per_head * num_heads != value_dim:
-            raise ValueError(
-                f"`{self.value_dim_per_head=}` must be divisible by `{num_heads=}`"
-            )
+            raise ValueError(f"`{self.value_dim_per_head=}` must be divisible by `{num_heads=}`")
 
-        self.linear_query = nn.Linear(
-            self.embedding_dim, self.query_key_dim, bias=use_query_bias
-        )
-        self.linear_key = nn.Linear(
-            self.embedding_dim, self.query_key_dim, bias=use_key_bias
-        )
-        self.linear_value = nn.Linear(
-            self.embedding_dim, self.value_dim, bias=use_value_bias
-        )
+        self.linear_query = nn.Linear(embedding_dim, query_key_dim, use_query_bias)
+        self.linear_key = nn.Linear(embedding_dim, query_key_dim, use_key_bias)
+        self.linear_value = nn.Linear(embedding_dim, value_dim, use_value_bias)
+        self.attn = ScaledDotProductAttention(self.query_key_dim_per_head)
 
-        self.scaled_dot_product_attn = ScaledDotProductAttention(
-            self.query_key_dim_per_head
-        )
-
-        self.linear_final = nn.Linear(
-            self.value_dim, self.embedding_dim, bias=use_final_linear_mha_bias
-        )
+        self.linear_final = nn.Linear(value_dim, embedding_dim, use_final_linear_mha_bias)
 
     def forward(self, query: T, key: T, value: T, mask: Optional[T] = None) -> T:
         # 1. Linear
@@ -97,7 +83,7 @@ class MultiHeadAttention(nn.Module):
         value = value.transpose(1, 2)
 
         # x.shape after next line is [batch_size, num_heads, embedding_dim, value_dim]
-        x: T = self.scaled_dot_product_attn(query, key, value, mask)
+        x: T = self.attn(query, key, value, mask)
 
         # 3. Concat
         x = x.transpose(1, 2).contiguous()

@@ -1,4 +1,3 @@
-import copy
 import subprocess
 import traceback
 from typing import Any, Dict
@@ -75,7 +74,7 @@ def experiment_num_encoder_decoder_layers(config: Dict[str, Any]) -> None:
 
     config["num_encoder_layers"] = 6
     config["num_decoder_layers"] = 6
-    config["experiment_name"] = f"transformer_num_encoder_decoder_layers_6_6"
+    config["experiment_name"] = "transformer_num_encoder_decoder_layers_6_6"
     run_experiment(config)
 
 

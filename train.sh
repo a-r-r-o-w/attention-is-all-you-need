@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python3 main.py train \
+python3 scripts/main.py train \
   --num_encoder_layers=3 \
   --num_decoder_layers=3 \
   --src_vocab_size=5000 \
@@ -21,10 +21,9 @@ python3 main.py train \
   --dataset_name="multi30k" \
   --epochs=20 \
   --seed=42 \
-  --validation_epochs=1 \
   --checkpoint_path="checkpoints" \
   --experiment_name="transformer" \
   --checkpoint_steps=10000 \
   --gradient_accumulation_steps=1 \
   --device="cuda:0" \
-  --track_wandb
+  # --track_wandb

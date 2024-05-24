@@ -1,13 +1,11 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 
 with open("README.md", "r", encoding="utf-8") as file:
     long_description = file.read()
 
 with open("requirements.txt", "r", encoding="utf-8") as file:
-    requirements = [
-        line.strip() for line in file.readlines() if len(line) > 0 and line[0] != "#"
-    ]
+    requirements = [line.strip() for line in file.readlines() if len(line) > 0 and line[0] != "#"]
 
 setup(
     name="attention_is_all_you_need",

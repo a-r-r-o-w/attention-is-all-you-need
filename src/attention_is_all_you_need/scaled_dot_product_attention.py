@@ -3,6 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
+
 T = torch.FloatTensor
 
 
@@ -42,7 +43,7 @@ class ScaledDotProductAttention(nn.Module):
 
         # 3. Mask
         if mask is not None:
-            x = x.masked_fill(mask == False, value=-1e9)
+            x = x.masked_fill(mask == False, value=-1e9)  # noqa
 
         # 4. SoftMax
         x = self.softmax(x)

@@ -1,10 +1,9 @@
-from typing import Optional
-
 import torch
 import torch.nn as nn
 
 from .blocks import DecoderBlock, EncoderBlock
 from .positional_encoding import PositionalEncoding
+
 
 T = torch.FloatTensor
 
@@ -202,7 +201,7 @@ class EncoderDecoderTransformer(nn.Module):
         r"""Forward pass through decoder.
 
         Args:
-            src_x (`torch.Tensor`): The source tokens ids.
+            src_x (`torch.Tensor`): The source tokens ids. This is only used to get the encoder mask.
             tgt_x (`torch.Tensor`): The target tokens ids.
             enc_x (`torch.Tensor`): The output of the encoder.
 

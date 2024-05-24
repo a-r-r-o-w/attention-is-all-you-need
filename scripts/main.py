@@ -10,20 +10,20 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import wandb
-from tokenizers import Tokenizer
-from tokenizers.models import BPE
-from tokenizers.trainers import BpeTrainer
-from tokenizers.pre_tokenizers import Whitespace
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
 from attention_is_all_you_need import (
     EncoderDecoderTransformer,
     PositionalEncoding,
-    LRScheduler,
 )
-from utils import get_summary, initialize_weights, collate_fn, bleu_score
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.trainers import BpeTrainer
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+import wandb
+from utils import bleu_score, collate_fn, get_summary, initialize_weights
+
 
 T = torch.Tensor
 
@@ -82,7 +82,6 @@ class CLI:
         dataset_name: str = "multi30k",
         epochs: int = 10,
         seed: int = 42,
-        validation_epochs: int = 1,
         checkpoint_path: str = "checkpoints",
         experiment_name: str = "transformer",
         checkpoint_steps: int = 500,
@@ -167,9 +166,7 @@ class CLI:
             raise ValueError("`WANDB_API_KEY` is not set in the environment variables")
         if track_wandb:
             wandb.login(key=WANDB_API_KEY, relogin=True)
-            run = wandb.init(
-                project="attention_is_all_you_need", name=experiment_name, config=config
-            )
+            run = wandb.init(project="attention_is_all_you_need", name=experiment_name, config=config)
             print("Logged in to wandb")
 
         def wandb_log(log_dict: dict) -> None:
@@ -186,104 +183,79 @@ class CLI:
         experiment_dir = os.path.join(checkpoint_path, experiment_name)
         if not os.path.exists(experiment_dir):
             os.makedirs(experiment_dir, exist_ok=True)
+        
+        path = f"dataset/{dataset_name}"
+        files = {
+            "train": "train.jsonl",
+            "test": "test.jsonl",
+        }
+        data = {}
+        for split, filename in files.items():
+            if split not in ["train", "test"]:
+                raise ValueError(f"Split '{split}' is not supported")
 
-        match dataset_name:
-            case "multi30k":
-                path = "dataset/multi30k"
-                files = {
-                    "train": "train.jsonl",
-                    "test": "test.jsonl",
-                    "val": "val.jsonl",
-                }
-                data = {}
-                for split, filename in files.items():
-                    if split not in ["train", "val", "test"]:
-                        raise ValueError(f"Split '{split}' is not supported")
+            data[split] = []
 
-                    data[split] = []
+            with open(os.path.join(path, filename), "r") as f:
+                for line in f:
+                    item = json.loads(line)
+                    item["src"] = item["src"].lower()
+                    item["tgt"] = item["tgt"].lower()
+                    data[split].append(item)
 
-                    with open(os.path.join(path, filename), "r") as f:
-                        for line in f:
-                            item = json.loads(line)
-                            item["en"] = item["en"].lower()
-                            item["de"] = item["de"].lower()
-                            data[split].append(item)
+        sentences_src = [item["src"] for split in data.keys() for item in data[split]]
+        sentences_tgt = [item["tgt"] for split in data.keys() for item in data[split]]
 
-                    # data[split] = data[split][:10000]
+        tokenizer_src = Tokenizer(BPE(unk_token=unk_token))
+        tokenizer_tgt = Tokenizer(BPE(unk_token=unk_token))
+        tokenizer_src.pre_tokenizer = Whitespace()
+        tokenizer_tgt.pre_tokenizer = Whitespace()
 
-                sentences_en = [
-                    item["en"] for split in data.keys() for item in data[split]
-                ]
-                sentences_de = [
-                    item["de"] for split in data.keys() for item in data[split]
-                ]
+        trainer_src = BpeTrainer(
+            special_tokens=[sos_token, eos_token, unk_token, pad_token],
+            vocab_size=src_vocab_size,
+            min_frequency=2,
+        )
+        trainer_tgt = BpeTrainer(
+            special_tokens=[sos_token, eos_token, unk_token, pad_token],
+            vocab_size=tgt_vocab_size,
+            min_frequency=2,
+        )
 
-                tokenizer_en = Tokenizer(BPE(unk_token=unk_token))
-                tokenizer_de = Tokenizer(BPE(unk_token=unk_token))
-                tokenizer_en.pre_tokenizer = Whitespace()
-                tokenizer_de.pre_tokenizer = Whitespace()
+        tokenizer_src.train_from_iterator(sentences_src, trainer_src)
+        tokenizer_tgt.train_from_iterator(sentences_tgt, trainer_tgt)
 
-                trainer_en = BpeTrainer(
-                    special_tokens=[sos_token, eos_token, unk_token, pad_token],
-                    vocab_size=src_vocab_size,
-                    min_frequency=2,
-                )
-                trainer_de = BpeTrainer(
-                    special_tokens=[sos_token, eos_token, unk_token, pad_token],
-                    vocab_size=tgt_vocab_size,
-                    min_frequency=2,
-                )
-
-                tokenizer_en.train_from_iterator(sentences_en, trainer_en)
-                tokenizer_de.train_from_iterator(sentences_de, trainer_de)
-            case _:
-                raise ValueError(f"Dataset {dataset_name} not supported")
-
-        sos_token_idx = tokenizer_en.token_to_id(sos_token)
-        eos_token_idx = tokenizer_en.token_to_id(eos_token)
+        sos_token_idx = tokenizer_src.token_to_id(sos_token)
+        eos_token_idx = tokenizer_src.token_to_id(eos_token)
         for split in data.keys():
             data_tensors = []
             for item in data[split]:
-                item["en"] = (
-                    [sos_token_idx]
-                    + tokenizer_en.encode(item["en"]).ids
-                    + [eos_token_idx]
-                )
-                item["de"] = (
-                    [sos_token_idx]
-                    + tokenizer_de.encode(item["de"]).ids
-                    + [eos_token_idx]
-                )
-                item["en"] = torch.tensor(item["en"][:max_length], dtype=torch.long)
-                item["de"] = torch.tensor(item["de"][:max_length], dtype=torch.long)
+                item["src"] = [sos_token_idx] + tokenizer_src.encode(item["src"]).ids + [eos_token_idx]
+                item["tgt"] = [sos_token_idx] + tokenizer_tgt.encode(item["tgt"]).ids + [eos_token_idx]
+                item["src"] = torch.tensor(item["src"][:max_length], dtype=torch.long)
+                item["tgt"] = torch.tensor(item["tgt"][:max_length], dtype=torch.long)
                 data_tensors.append(item)
             data[split] = data_tensors
 
-        pad_src_idx = tokenizer_en.token_to_id(pad_token)
-        pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
+        pad_src_idx = tokenizer_src.token_to_id(pad_token)
+        pad_tgt_idx = tokenizer_tgt.token_to_id(pad_token)
 
         def collate_helper(batch):
             return collate_fn(
                 batch,
-                en_pad_token_id=pad_src_idx,
-                de_pad_token_id=pad_tgt_idx,
+                src_pad_token_id=pad_src_idx,
+                tgt_pad_token_id=pad_tgt_idx,
                 max_length=max_length,
             )
 
         train_dataloader = DataLoader(
-            [(item["en"], item["de"]) for item in data["train"]],
+            [(item["src"], item["tgt"]) for item in data["train"]],
             batch_size=batch_size,
             shuffle=True,
             collate_fn=collate_helper,
         )
-        val_dataloader = DataLoader(
-            [(item["en"], item["de"]) for item in data["val"]],
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=collate_helper,
-        )
         test_dataloader = DataLoader(
-            [(item["en"], item["de"]) for item in data["test"]],
+            [(item["src"], item["tgt"]) for item in data["test"]],
             batch_size=batch_size,
             shuffle=False,
             collate_fn=collate_helper,
@@ -333,22 +305,31 @@ class CLI:
         if track_wandb:
             wandb.watch(transformer, log="all", log_freq=1000)
 
-        train_losses, val_losses, test_losses = [], [], []
-        train_bleu_scores, val_bleu_scores, test_bleu_scores = [], [], []
+        train_losses, test_losses = [], []
+        train_bleu_scores, test_bleu_scores = [], []
         step = 0
         total_steps = len(train_dataloader) * epochs
 
-        def perform_forward(en_tensors, de_tensors) -> Tuple[T, T]:
-            en_tensors = en_tensors.to(device=device)
-            de_tensors = de_tensors.to(device=device)
-            src_de = de_tensors[:, :-1]
-            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
+        def perform_forward(src_tensors, tgt_tensors) -> Tuple[T, T]:
+            src_tensors = src_tensors.to(device=device)
+            tgt_tensors = tgt_tensors.to(device=device)
+            src_de = tgt_tensors[:, :-1]
+            tgt_de = tgt_tensors[:, 1:].contiguous().view(-1)
 
             optimizer.zero_grad()
-            output = transformer(en_tensors, src_de)
+            output = transformer(src_tensors, src_de)
             loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_de)
-
             return output, loss
+
+        def calculate_bleu_score(output_tensors, tgt_tensors):
+            output_tokens = tokenizer_tgt.decode_batch(
+                output_tensors.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
+            )
+            tgt_tokens = tokenizer_tgt.decode_batch(
+                tgt_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
+            )
+            tgt_tokens = [[t] for t in tgt_tokens]
+            return bleu_score(output_tokens, tgt_tokens)
 
         with tqdm(total=total_steps, desc="Training") as train_bar:
             for epoch in range(1, epochs + 1):
@@ -356,31 +337,19 @@ class CLI:
                 bleu = 0.0
 
                 transformer.train()
-                for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
-                    output, loss = perform_forward(en_tensors, de_tensors)
+                for i, (src_tensors, tgt_tensors) in enumerate(train_dataloader):
+                    output, loss = perform_forward(src_tensors, tgt_tensors)
                     loss.backward()
+                    total_loss += loss.item()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
+                    bleu += calculate_bleu_score(output, tgt_tensors)
 
-                    output_tokens = tokenizer_de.decode_batch(
-                        output.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
-                    )
-                    tgt_tokens = tokenizer_de.decode_batch(
-                        de_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
-                    )
-                    tgt_tokens = [[t] for t in tgt_tokens]
-                    bleu += bleu_score(output_tokens, tgt_tokens)
-
-                    if (
-                        step + 1 == total_steps
-                        or step % gradient_accumulation_steps == 0
-                    ):
+                    if step + 1 == total_steps or step % gradient_accumulation_steps == 0:
                         for param in transformer.parameters():
                             if param.grad is not None:
                                 param.grad /= gradient_accumulation_steps
                         optimizer.step()
                         optimizer.zero_grad()
-
-                    total_loss += loss.item()
 
                     step += 1
                     train_bar.update()
@@ -388,18 +357,16 @@ class CLI:
                     if step % checkpoint_steps == 0:
                         torch.save(
                             transformer.state_dict(),
-                            os.path.join(
-                                experiment_dir, f"{experiment_name}_{step}.pth"
-                            ),
+                            os.path.join(experiment_dir, f"{experiment_name}_{step}.pth"),
                         )
 
                 train_losses.append(total_loss / len(train_dataloader))
                 train_bleu_scores.append(bleu / len(train_dataloader))
                 wandb_log(
                     {
-                        "train_loss": train_losses[-1],
-                        "train_perplexity": np.exp(train_losses[-1]),
-                        "train_bleu": train_bleu_scores[-1],
+                        "train/loss": train_losses[-1],
+                        "train/perplexity": np.exp(train_losses[-1]),
+                        "train/bleu": train_bleu_scores[-1],
                     }
                 )
                 print()
@@ -409,92 +376,25 @@ class CLI:
                 print(f"BLEU Score: {train_bleu_scores[-1] * 100:.3f}")
                 print()
 
-                # val set
-                if (epoch - 1) % validation_epochs == 0:
-                    total_loss = 0.0
-                    bleu = 0.0
-
-                    transformer.eval()
-                    with torch.no_grad():
-                        with tqdm(
-                            total=len(val_dataloader), desc="Validation"
-                        ) as valbar:
-                            for i, (en_tensors, de_tensors) in enumerate(
-                                val_dataloader
-                            ):
-                                output, loss = perform_forward(en_tensors, de_tensors)
-                                total_loss += loss.item()
-                                output_tokens = tokenizer_de.decode_batch(
-                                    output.argmax(dim=-1).cpu().numpy(),
-                                    skip_special_tokens=True,
-                                )
-                                tgt_tokens = tokenizer_de.decode_batch(
-                                    de_tensors[:, 1:].cpu().numpy(),
-                                    skip_special_tokens=True,
-                                )
-                                tgt_tokens = [[t] for t in tgt_tokens]
-                                bleu += bleu_score(output_tokens, tgt_tokens)
-
-                                valbar.update()
-
-                    val_losses.append(total_loss / len(val_dataloader))
-                    val_bleu_scores.append(bleu / len(val_dataloader))
-                    wandb_log(
-                        {
-                            "val_loss": val_losses[-1],
-                            "val_perplexity": np.exp(val_losses[-1]),
-                            "val_bleu": val_bleu_scores[-1],
-                        }
-                    )
-                    print()
-                    print(f"Validation Loss: [{total_loss=:.3f}] {val_losses[-1]:.3f}")
-                    print(f"Perplexity: {np.exp(val_losses[-1]):.3f}")
-                    print(f"BLEU Score: {val_bleu_scores[-1] * 100:.3f}")
-                    print()
-
-                    print("Running inference on validation set")
-                    tgt_tokens = tokenizer_de.decode_batch(
-                        de_tensors[:5, 1:].cpu().numpy(), skip_special_tokens=False
-                    )
-                    output_tokens = tokenizer_de.decode_batch(
-                        output[:5].argmax(dim=-1).cpu().numpy(),
-                        skip_special_tokens=False,
-                    )
-
-                    for tgt, out in zip(tgt_tokens, output_tokens):
-                        print(f"   target: {tgt}")
-                        print(f"generated: {out}")
-                        print()
-
                 total_loss = 0.0
                 bleu = 0.0
 
                 transformer.eval()
                 with torch.no_grad():
                     with tqdm(total=len(test_dataloader), desc="Testing") as testbar:
-                        for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                            output, loss = perform_forward(en_tensors, de_tensors)
+                        for i, (src_tensors, tgt_tensors) in enumerate(test_dataloader):
+                            output, loss = perform_forward(src_tensors, tgt_tensors)
                             total_loss += loss.item()
-
-                            output_tokens = tokenizer_de.decode_batch(
-                                output.argmax(dim=-1).cpu().numpy(),
-                                skip_special_tokens=True,
-                            )
-                            tgt_tokens = tokenizer_de.decode_batch(
-                                de_tensors[:, 1:].cpu().numpy(),
-                                skip_special_tokens=True,
-                            )
-                            tgt_tokens = [[t] for t in tgt_tokens]
-                            bleu += bleu_score(output_tokens, tgt_tokens)
-
+                            bleu += calculate_bleu_score(output, tgt_tensors)
                             testbar.update()
 
                 test_losses.append(total_loss / len(test_dataloader))
                 test_bleu_scores.append(bleu / len(test_dataloader))
                 wandb_log(
                     {
-                        "test_loss": test_losses[-1],
-                        "test_perplexity": np.exp(test_losses[-1]),
+                        "test/loss": test_losses[-1],
+                        "test/perplexity": np.exp(test_losses[-1]),
+                        "test/bleu": test_bleu_scores[-1],
                     }
                 )
                 print()
@@ -503,21 +403,21 @@ class CLI:
                 print(f"BLEU Score: {test_bleu_scores[-1] * 100:.3f}")
                 print()
 
-        config.update({
-            "pad_src_idx": pad_src_idx,
-            "pad_tgt_idx": pad_tgt_idx,
-        })
+        config.update(
+            {
+                "pad_src_idx": pad_src_idx,
+                "pad_tgt_idx": pad_tgt_idx,
+            }
+        )
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(config, f, indent=4)
 
-        with open(os.path.join(experiment_dir, f"train.json"), "w") as f:
+        with open(os.path.join(experiment_dir, "train.json"), "w") as f:
             json.dump(
                 {
                     "train_losses": train_losses,
-                    "val_losses": val_losses,
                     "test_losses": test_losses,
                     "train_bleu": train_bleu_scores,
-                    "val_bleu": val_bleu_scores,
                     "test_bleu": test_bleu_scores,
                 },
                 f,
@@ -529,8 +429,8 @@ class CLI:
             os.path.join(experiment_dir, "transformer_final.pth"),
         )
 
-        tokenizer_en.save(os.path.join(experiment_dir, "tokenizer_en.json"))
-        tokenizer_de.save(os.path.join(experiment_dir, "tokenizer_de.json"))
+        tokenizer_src.save(os.path.join(experiment_dir, "tokenizer_src.json"))
+        tokenizer_tgt.save(os.path.join(experiment_dir, "tokenizer_tgt.json"))
 
     def inference(
         self,
@@ -570,6 +470,7 @@ class CLI:
         experiment_dir = os.path.join(checkpoint_path, experiment_name)
         with open(os.path.join(experiment_dir, "config.json"), "r") as f:
             config = json.load(f)
+            print(config)
 
         # read model
         transformer = EncoderDecoderTransformer(
@@ -599,36 +500,24 @@ class CLI:
             strict=False,
         )
 
-        tokenizer_en = Tokenizer.from_file(
-            os.path.join(experiment_dir, "tokenizer_en.json")
-        )
-        tokenizer_de = Tokenizer.from_file(
-            os.path.join(experiment_dir, "tokenizer_de.json")
-        )
+        tokenizer_src = Tokenizer.from_file(os.path.join(experiment_dir, "tokenizer_src.json"))
+        tokenizer_tgt = Tokenizer.from_file(os.path.join(experiment_dir, "tokenizer_tgt.json"))
 
-        sos_token_idx = tokenizer_en.token_to_id("<sos>")
-        eos_token_idx = tokenizer_en.token_to_id("<eos>")
+        sos_token_idx = tokenizer_src.token_to_id("<sos>")
+        eos_token_idx = tokenizer_src.token_to_id("<eos>")
 
         transformer.eval()
         with torch.no_grad():
             for i, sentence in enumerate(input):
-                en_tokens = (
-                    [sos_token_idx]
-                    + tokenizer_en.encode(sentence.lower()).ids
-                    + [eos_token_idx]
-                )
-                en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(
-                    device=device
-                )
+                en_tokens = [sos_token_idx] + tokenizer_src.encode(sentence.lower()).ids + [eos_token_idx]
+                src_tensors = torch.tensor([en_tokens], dtype=torch.long).to(device=device)
 
                 de_tokens = [sos_token_idx]
-                memory = transformer.encode(en_tensors)
+                memory = transformer.encode(src_tensors)
 
                 for _ in range(max_length - 1):
-                    de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(
-                        device=device
-                    )
-                    logits = transformer.decode(de_tensors, memory)
+                    tgt_tensors = torch.tensor([de_tokens], dtype=torch.long).to(device=device)
+                    logits = transformer.decode(tgt_tensors, memory)
                     logits /= temperature
 
                     if top_k > 0:
@@ -636,16 +525,10 @@ class CLI:
                         logits[logits < v[:, -1].unsqueeze(0)] = -float("inf")
 
                     if top_p > 0.0:
-                        sorted_logits, sorted_indices = torch.sort(
-                            logits[:, -1, :], descending=True
-                        )
-                        cumulative_probs = torch.cumsum(
-                            torch.softmax(sorted_logits, dim=-1), dim=-1
-                        )
+                        sorted_logits, sorted_indices = torch.sort(logits[:, -1, :], descending=True)
+                        cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
                         sorted_indices_to_remove = cumulative_probs > top_p
-                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[
-                            ..., :-1
-                        ].clone()
+                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                         sorted_indices_to_remove[..., 0] = 0
                         indices_to_remove = sorted_indices[sorted_indices_to_remove]
                         logits[:, -1, indices_to_remove] = -float("inf")
@@ -662,7 +545,7 @@ class CLI:
                     if pred_token.item() == eos_token_idx:
                         break
 
-                output = tokenizer_de.decode(de_tokens, skip_special_tokens=False)
+                output = tokenizer_tgt.decode(de_tokens, skip_special_tokens=False)
                 print(f"Input: {sentence}")
                 print(f"Output: {output}")
                 print(f"Generated token indices: {de_tokens}")

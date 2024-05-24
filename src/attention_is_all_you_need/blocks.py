@@ -6,6 +6,7 @@ import torch.nn as nn
 from .multihead_attention import MultiHeadAttention
 from .position_wise_ffn import PositionwiseFeedForward
 
+
 T = torch.FloatTensor
 
 
@@ -186,9 +187,7 @@ class DecoderBlock(nn.Module):
         self.dropout3 = nn.Dropout(dropout_rate)
         self.norm3 = nn.LayerNorm(embedding_dim)
 
-    def forward(
-        self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
-    ) -> T:
+    def forward(self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None) -> T:
         # 1. Masked MultiHead Attention
         residual = x
         x = self.mha1(x, x, x, mask)
