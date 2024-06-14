@@ -12,4 +12,3 @@ mkdir -p $dataset2_folder
 wget -O $dataset2_folder/train.jsonl https://huggingface.co/datasets/bentrevett/multi30k/raw/main/train.jsonl
 wget -O $dataset2_folder/test.jsonl https://huggingface.co/datasets/bentrevett/multi30k/raw/main/test.jsonl
 wget -O $dataset2_folder/val.jsonl https://huggingface.co/datasets/bentrevett/multi30k/raw/main/val.jsonl
-

@@ -1,0 +1,7 @@
+matplotlib==3.8.4
+numpy==1.26.4
+python-dotenv==1.0.1
+python-fire==0.1.0
+torch>=2.0
+tokenizers==0.19.1
+wandb==0.17.0
